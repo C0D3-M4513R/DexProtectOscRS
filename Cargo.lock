@@ -517,15 +517,16 @@ dependencies = [
  "async-recursion",
  "eframe",
  "egui",
+ "egui_extras",
  "egui_tracing",
  "log",
  "rfd",
  "rosc",
  "serde",
- "serde-this-or-that",
  "serde_derive",
  "serde_json",
  "tokio",
+ "tracing-core",
  "tracing-subscriber",
  "unicode-bom",
 ]
@@ -643,6 +644,16 @@ dependencies = [
  "smithay-clipboard",
  "webbrowser",
  "winit",
+]
+
+[[package]]
+name = "egui_extras"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9278f4337b526f0d57e5375e5a7340a311fa6ee8f9fcc75721ac50af13face02"
+dependencies = [
+ "egui",
+ "serde",
 ]
 
 [[package]]
@@ -1790,15 +1801,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf9e0fcba69a370eed61bcf2b728575f726b50b55cba78064753d708ddc7549e"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde-this-or-that"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "634c5a3cb041e56cc2964386151c67d520f845445789da3bd46bfb1c94f5e3bb"
-dependencies = [
- "serde",
 ]
 
 [[package]]

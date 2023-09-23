@@ -1,0 +1,113 @@
+name: Rust builds
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - v*
+  pull_request:
+    branches: [main]
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+      - name: Rename and move artifacts
+        run: |
+          for dir in artifacts/*/
+          do
+            dir=${dir%*/} # remove the trailing "/"
+            for file in $dir/*
+            do 
+              file=${file##*/} # remove the path before the filename
+              base=${file%.*} # remove the extension
+              ext=${file#"$base"} # remove the filename before the extension
+              echo "moving ${dir}/${file} to artifacts/${file%%.*}-${dir##*/}${ext}"
+              mv "${dir}/${file}" "artifacts/${file%%.*}-${dir##*/}${ext}"
+            done
+            rm -r "${dir}"
+          done
+      - name: release
+        uses: ncipollo/release-action@v1
+        id: create_release
+        with:
+          generateReleaseNotes: true
+          artifacts: "artifacts/*"
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        rust: [stable]
+        target: [x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc, x86_64-apple-darwin, aarch64-apple-darwin] #x86_64-unknown-linux-musl
+        features: ["file_dialog"]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux_64-bit
+          #- os: ubuntu-latest
+          #  target: x86_64-unknown-linux-musl
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows_64-bit
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            name: windows_64-bit
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos_x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos_aarch64
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }}
+      - name: Linux Specific libs install
+        if: matrix.os == 'ubuntu-latest'
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: librust-atk-dev libglib2.0-dev libgtk-3-dev
+          execute_install_scripts: true
+      - name: Configure sccache env var and set build profile to ephemeral build
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+
+      - name: Run build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --target ${{ matrix.target }} --release --features ${{ matrix.features }}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            target/${{ matrix.target }}/release/
+            !target/${{ matrix.target }}/release/deps
+            !target/${{ matrix.target }}/release/build
+            !target/${{ matrix.target }}/release/.fingerprint
+            !target/${{ matrix.target }}/release/examples
+            !target/${{ matrix.target }}/release/incremental
+            !target/${{ matrix.target }}/release/.cargo-lock
+            !target/${{ matrix.target }}/release/*.d
+            !target/${{ matrix.target }}/release/*.pdb
