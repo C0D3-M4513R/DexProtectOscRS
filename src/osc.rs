@@ -58,11 +58,11 @@ impl Osc{
                     continue;
                 }
                 Ok(size) => {
-                    log::debug!("Received UDP Packet with size {} ",size);
+                    log::trace!("Received UDP Packet with size {} ",size);
                     match rosc::decoder::decode_udp(&buf[..size]) {
                         Err(e) => {
                             log::error!("Error decoding udp packet into an OSC Packet: {}", e);
-                            log::debug!("Packet contents were: {:#X?}",&buf[..size]);
+                            log::trace!("Packet contents were: {:#X?}",&buf[..size]);
                             continue;
                         }
                         Ok((_, packet)) => self.handle_packet(packet).await
@@ -74,7 +74,7 @@ impl Osc{
         }
     }
     async fn send_message(&self, message: &OscPacket){
-        log::debug!("Sending OSC Message: {:#?}", message);
+        log::trace!("Sending OSC Message: {:#?}", message);
         match rosc::encoder::encode(message) {
             Ok(v) => match self.osc_send.send(v.as_slice()).await {
                 Ok(_) => return,
@@ -107,7 +107,7 @@ impl Osc{
     async fn handle_packet(&mut self, packet: OscPacket){
         match packet {
             OscPacket::Message(msg) => {
-                log::debug!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
+                log::trace!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
                 self.handle_message(msg).await;
             }
             OscPacket::Bundle(bundle) => {
@@ -182,7 +182,7 @@ impl Osc{
                         let (whole_str, part_str) = float.split_at(index);
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
-                        log::debug!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
+                        log::trace!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
                         whole = match decode_number(whole_str, id){
                             Some(v) => v,
                             None => return
@@ -201,16 +201,6 @@ impl Osc{
                         part_digits = 0;
                     }
                     let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
-                    /*
-                    let amount =
-                        match split.index(i).parse() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::error!("Error whilst decoding part of the Key for the Avatar id '{}': {}.\n Refusing to unlock.", id, e);
-                            return;
-                        }
-                    };
-                    */
                     key.push(OscPacket::Message(OscMessage{
                         addr: format!("/avatar/parameters/{}", split.index(i+1)),
                         args: vec![OscType::Float(amount)],
