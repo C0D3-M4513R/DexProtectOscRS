@@ -110,3 +110,4 @@ jobs:
             !target/${{ matrix.target }}/release/incremental
             !target/${{ matrix.target }}/release/.cargo-lock
             !target/${{ matrix.target }}/release/*.d
+            !target/${{ matrix.target }}/release/*.pdb
