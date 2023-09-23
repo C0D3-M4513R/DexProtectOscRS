@@ -70,14 +70,13 @@ jobs:
       fail-fast: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: moonrepo/setup-rust@v1
         with:
-          toolchain: stable
-          override: true
-          target: ${{ matrix.target }}
+          cache-target: release
+          channel: stable-${{ matrix.target }}
       - name: Linux Specific libs install
         if: matrix.os == 'ubuntu-latest'
         uses: awalsh128/cache-apt-pkgs-action@v1
@@ -88,15 +87,10 @@ jobs:
         run: |
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.3
-
       - name: Run build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target ${{ matrix.target }} --release --features ${{ matrix.features }}
+        run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }}
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
