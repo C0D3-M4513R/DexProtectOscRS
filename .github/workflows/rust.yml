@@ -38,7 +38,11 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-
+      - name: Os Specific libs install
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev
       - name: Configure sccache env var and set build profile to ephemeral build
         run: |
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
