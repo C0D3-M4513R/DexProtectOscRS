@@ -25,12 +25,12 @@ jobs:
           for dir in artifacts/*/
           do
             dir=${dir%*/} # remove the trailing "/"
-            for file in artifacts/$dir/*
+            for file in $dir/*
             do 
               file = ${file##*/} # remove the path before the filename
               mv "artifacts/${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
             done
-            rm -r "artifacts/${dir}"
+            rm -r "${dir}"
           done
       - name: release
         uses: ncipollo/release-action@v1
