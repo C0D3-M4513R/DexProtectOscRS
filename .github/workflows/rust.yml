@@ -1,4 +1,4 @@
-name: Rust application ephemeral environment build
+name: Rust builds
 
 on:
   push:
@@ -62,4 +62,11 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: dex_protect_rs-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/dex_protect_rs
+          path: |
+            target/${{ matrix.target }}/release/
+            !target/${{ matrix.target }}/release/deps
+            !target/${{ matrix.target }}/release/build
+            !target/${{ matrix.target }}/release/.fingerprint
+            !target/${{ matrix.target }}/release/examples
+            !target/${{ matrix.target }}/release/incremental
+            !target/${{ matrix.target }}/release/.cargo-lock
