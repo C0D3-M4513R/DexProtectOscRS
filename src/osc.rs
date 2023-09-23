@@ -58,10 +58,12 @@ impl Osc{
                     continue;
                 }
                 Ok(size) => {
+                    #[cfg(debug_assertions)]
                     log::trace!("Received UDP Packet with size {} ",size);
                     match rosc::decoder::decode_udp(&buf[..size]) {
                         Err(e) => {
                             log::error!("Error decoding udp packet into an OSC Packet: {}", e);
+                            #[cfg(debug_assertions)]
                             log::trace!("Packet contents were: {:#X?}",&buf[..size]);
                             continue;
                         }
@@ -74,6 +76,7 @@ impl Osc{
         }
     }
     async fn send_message(&self, message: &OscPacket){
+        #[cfg(debug_assertions)]
         log::trace!("Sending OSC Message: {:#?}", message);
         match rosc::encoder::encode(message) {
             Ok(v) => match self.osc_send.send(v.as_slice()).await {
@@ -107,6 +110,7 @@ impl Osc{
     async fn handle_packet(&mut self, packet: OscPacket){
         match packet {
             OscPacket::Message(msg) => {
+                #[cfg(debug_assertions)]
                 log::trace!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
                 self.handle_message(msg).await;
             }
@@ -174,7 +178,7 @@ impl Osc{
                 let mut i = 0;
                 while i < len {
                     let float = split.index(i);
-                    log::debug!("Decoding float: {}", float);
+                    log::trace!("Decoding float: {}", float);
                     let whole:u32;
                     let part:u32;
                     let part_digits:u32;
@@ -214,6 +218,7 @@ impl Osc{
                     },
                     content: key
                 })).await;
+                log::info!("Avatar Change Detected to Avatar id '{}'. Key was detected, has been decoded and the Avatar has been Unlocked.", id);
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound{
@@ -223,7 +228,7 @@ impl Osc{
                 log::error!("Failed to read the Avatar id '{}' from the Avatar Folder: {}.", id, e);
             }
         }
-        log::info!("Avatar Change Detected to Avatar id '{}'. Unlock Functionality is not implemented yet.", id);
+
     }
 }
 

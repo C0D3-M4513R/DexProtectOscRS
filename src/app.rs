@@ -11,6 +11,7 @@ use crate::osc::OscCreateData;
 
 #[derive(Deserialize, Serialize)]
 pub struct App<'a>{
+    logs_visible: bool,
     #[serde(skip)]
     collector:egui_tracing::EventCollector,
     pub(crate) auto_connect_launch: bool,
@@ -31,7 +32,8 @@ pub struct App<'a>{
 impl<'a> Debug for App<'a>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("App");
-        debug.field("collector",&self.collector)
+        debug.field("logs_visible", &self.logs_visible)
+            .field("collector",&self.collector)
             .field("auto_connect_launch",&self.auto_connect_launch)
             .field("ip", &self.ip)
             .field("unapplied_changes", &self.unapplied_changes)
@@ -47,6 +49,7 @@ impl<'a> Debug for App<'a>{
 impl<'a> Default for App<'a>{
     fn default() -> Self {
         Self{
+            logs_visible: false,
             collector:egui_tracing::EventCollector::new(),
             auto_connect_launch: true,
             ip:"127.0.0.1".to_string(),
@@ -77,6 +80,8 @@ impl<'a> App<'a> {
             Default::default()
         };
 
+        #[cfg(not(debug_assertions))]
+        log::info!("You are running a release build. Some log statements were disabled.");
         slf.collector = collector;
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();
@@ -145,9 +150,7 @@ impl Display for OSCError {
     }
 }
 
-impl std::error::Error for OSCError {
-
-}
+impl std::error::Error for OSCError {}
 
 impl<'a> eframe::App for App<'a> {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
@@ -180,18 +183,10 @@ impl<'a> eframe::App for App<'a> {
             }
         }
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Resize::default()
-                .resizable(true)
-                .min_width(ctx.screen_rect().size().x-20.)
-                .max_size(egui::vec2(ctx.screen_rect().size().x-20.,f32::INFINITY))
-                .show(ui,|ui|
-                    ui.add(egui_tracing::Logs::new(self.collector.clone()))
-                );
-            ui.add_space(10.);
             ui.horizontal(|ui|{
                 ui.label("IP:");
-                ui.text_edit_singleline(&mut self.ip)
-            }).inner;
+                ui.text_edit_singleline(&mut self.ip);
+            });
             ui.horizontal(|ui|{
                 ui.label("OSC Receive Port:");
                 ui.add(egui::DragValue::new(&mut self.osc_recv_port));
@@ -282,7 +277,21 @@ impl<'a> eframe::App for App<'a> {
                     }
                 }
                 ui.checkbox(&mut self.auto_connect_launch, "Auto-Connect on Launch");
+                if ui.button(if self.logs_visible {"Hide Logs"} else { "Show Logs"}).clicked() {
+                    self.logs_visible = !self.logs_visible;
+                }
             });
+            if self.logs_visible {
+                egui::Resize::default()
+                    .resizable(false)
+                    .min_width(ctx.screen_rect().size().x-20.)
+                    .min_height(f32::max(ctx.screen_rect().height()-170.,0.))
+                    .max_size(egui::vec2(ctx.screen_rect().width()-20.,f32::max(ctx.screen_rect().height()-170.,0.)))
+                    .show(ui,|ui|
+                        ui.add(egui_tracing::Logs::new(self.collector.clone()))
+                    );
+                // ui.add_space(10.);
+            }
         });
 
         let mut i = 0;
