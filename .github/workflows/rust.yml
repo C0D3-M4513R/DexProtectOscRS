@@ -3,13 +3,41 @@ name: Rust builds
 on:
   push:
     branches: [main]
+    tags:
+      - v*
   pull_request:
     branches: [main]
 
 jobs:
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+      - name: Rename and move artifacts
+        run: |
+          for dir in artifacts/*/
+          do
+            dir=${dir%*/} # remove the trailing "/"
+            for file in artifacts/$dir/*
+            do 
+              mv "artifacts/${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
+            done
+            rm -r "artifacts/${dir}"
+          done
+      - name: release
+        uses: ncipollo/release-action@v1
+        id: create_release
+        with:
+          generateReleaseNotes: true
+          artifacts: "artifacts/*"
+
   build:
     runs-on: ${{ matrix.os }}
-
     strategy:
       matrix:
         rust: [stable]
@@ -22,12 +50,16 @@ jobs:
           #  target: x86_64-unknown-linux-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            name: windows_64-bit
           - os: windows-latest
             target: i686-pc-windows-msvc
+            name: windows_64-bit
           - os: macos-latest
             target: x86_64-apple-darwin
+            name: macos_x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
+            name: macos_aarch64
       fail-fast: false
     steps:
       - name: Checkout repository
@@ -58,15 +90,3 @@ jobs:
         with:
           command: build
           args: --target ${{ matrix.target }} --release --features ${{ matrix.features }}
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: dex_protect_rs-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/
-            !target/${{ matrix.target }}/release/deps
-            !target/${{ matrix.target }}/release/build
-            !target/${{ matrix.target }}/release/.fingerprint
-            !target/${{ matrix.target }}/release/examples
-            !target/${{ matrix.target }}/release/incremental
-            !target/${{ matrix.target }}/release/.cargo-lock
