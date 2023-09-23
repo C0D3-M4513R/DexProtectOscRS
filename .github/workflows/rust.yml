@@ -39,11 +39,12 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-      - name: Os Specific libs install
+      - name: Linux Specific libs install
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: librust-atk-dev libglib2.0-dev
+          execute_install_scripts: true
       - name: Configure sccache env var and set build profile to ephemeral build
         run: |
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
