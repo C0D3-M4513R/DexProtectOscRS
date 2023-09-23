@@ -63,7 +63,7 @@ jobs:
             name: windows_64-bit
           - os: macos-latest
             target: x86_64-apple-darwin
-            name: macos_x86_64
+            name: macos_64-bit
 #          - os: macos-latest
 #            target: aarch64-apple-darwin
 #            name: macos_aarch64
