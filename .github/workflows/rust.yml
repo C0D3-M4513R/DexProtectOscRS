@@ -14,6 +14,7 @@ jobs:
       matrix:
         rust: [stable]
         target: [x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl, x86_64-pc-windows-msvc, i686-pc-windows-msvc, x86_64-apple-darwin, aarch64-apple-darwin]
+        features: ["file_dialog"]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -50,8 +51,9 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --target ${{ matrix.target }} --release
+          args: --target ${{ matrix.target }} --release --features ${{ matrix.features }}
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          path: target/${{ matrix.target }}/release/dex_protect_rs*
+          name: dex_protect_rs-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/dex_protect_rs.*
