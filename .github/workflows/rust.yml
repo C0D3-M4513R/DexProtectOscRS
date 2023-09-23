@@ -47,17 +47,17 @@ jobs:
         target: [x86_64-apple-darwin, aarch64-apple-darwin] #x86_64-unknown-linux-musl
         features: ["file_dialog"]
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            name: linux_64-bit
+#          - os: ubuntu-latest
+#            target: x86_64-unknown-linux-gnu
+#            name: linux_64-bit
           #- os: ubuntu-latest
           #  target: x86_64-unknown-linux-musl
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: windows_64-bit
-          - os: windows-latest
-            target: i686-pc-windows-msvc
-            name: windows_64-bit
+#          - os: windows-latest
+#            target: x86_64-pc-windows-msvc
+#            name: windows_64-bit
+#          - os: windows-latest
+#            target: i686-pc-windows-msvc
+#            name: windows_64-bit
           - os: macos-latest
             target: x86_64-apple-darwin
             name: macos_x86_64
