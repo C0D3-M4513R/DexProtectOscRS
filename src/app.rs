@@ -81,7 +81,7 @@ impl<'a> App<'a> {
         };
 
         #[cfg(not(debug_assertions))]
-        log::info!("You are running a release.yml build. Some log statements were disabled.");
+        log::info!("You are running a release build. Some log statements were disabled.");
         slf.collector = collector;
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();

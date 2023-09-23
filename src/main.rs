@@ -1,5 +1,6 @@
 #![forbid(unsafe_code, future_incompatible, clippy::unwrap_used, clippy::panic, clippy::panic_in_result_fn, clippy::unwrap_in_result, clippy::unreachable)]
 #![deny(clippy::expect_used)]
+#![windows_subsystem = "windows"]
 
 use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
