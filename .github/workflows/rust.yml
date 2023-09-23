@@ -27,6 +27,7 @@ jobs:
             dir=${dir%*/} # remove the trailing "/"
             for file in artifacts/$dir/*
             do 
+              file = ${file##*/} # remove the path before the filename
               mv "artifacts/${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
             done
             rm -r "artifacts/${dir}"
