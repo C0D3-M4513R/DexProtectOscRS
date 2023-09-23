@@ -21,7 +21,6 @@ jobs:
         with:
           path: artifacts
       - name: Rename and move artifacts
-        if: never()
         run: |
           for dir in artifacts/*/
           do
