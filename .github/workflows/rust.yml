@@ -43,7 +43,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: librust-atk-dev libglib2.0-dev
+          packages: librust-atk-dev libglib2.0-dev libgtk-3-dev
           execute_install_scripts: true
       - name: Configure sccache env var and set build profile to ephemeral build
         run: |
