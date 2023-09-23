@@ -247,9 +247,10 @@ fn decode_number(number:&str, id:&str) -> Option<u32> {
     }
 }
 fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
-    let bom = unicode_bom::Bom ::from(v.as_slice());
+    let bom = unicode_bom::Bom::from(v.as_slice());
     match bom {
         Bom::Null => {
+            log::debug!("No BOM Detected. Assuming UTF-8.");
             let mut vec_deque = VecDeque::from(v);
             vec_deque.pop_front();
             vec_deque.pop_front();
@@ -266,20 +267,25 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
         Bom::Utf1 => None,
         Bom::Utf7 => None,
         Bom::Utf8 => {
-            match String::from_utf8(v) {
+            log::debug!("Detected UTF-8 file.");
+            let mut vec_deque = VecDeque::from(v);
+            vec_deque.pop_front();
+            vec_deque.pop_front();
+            vec_deque.pop_front();
+            match String::from_utf8(vec_deque.into()) {
                 Ok(v) => Some(v),
                 Err(_) => None,
             }
         }
         Bom::Utf16Be => {
-            log::debug!("Detected UTF-16 Key file.");
+            log::debug!("Detected UTF-16Be file.");
             let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(v, true));
             utf16_buf.pop_front();
             log::debug!("Decoded {} u16 values.", utf16_buf.len());
             utf16_buf_to_str(utf16_buf.into())
         }
         Bom::Utf16Le => {
-            log::debug!("Detected UTF-16 Key file.");
+            log::debug!("Detected UTF-16Le file.");
             let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(v,false));
             utf16_buf.pop_front();
             log::debug!("Decoded {} u16 values.", utf16_buf.len());
