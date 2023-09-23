@@ -20,7 +20,18 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           path: artifacts
-
+      - name: Rename and move artifacts
+        if: never()
+        run: |
+          for dir in artifacts/*/
+          do
+            dir=${dir%*/} # remove the trailing "/"
+            for file in artifacts/$dir/*
+            do 
+              mv "artifacts/${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
+            done
+            rm -r "artifacts/${dir}"
+          done
       - name: release
         uses: ncipollo/release-action@v1
         id: create_release
@@ -33,7 +44,8 @@ jobs:
     strategy:
       matrix:
         rust: [stable]
-        target: [x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc, x86_64-apple-darwin, aarch64-apple-darwin] #x86_64-unknown-linux-musl
+        #x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc,
+        target: [x86_64-apple-darwin, aarch64-apple-darwin] #x86_64-unknown-linux-musl
         features: ["file_dialog"]
         include:
           - os: ubuntu-latest
