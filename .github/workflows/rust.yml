@@ -29,7 +29,8 @@ jobs:
             do 
               file=${file##*/} # remove the path before the filename
               base=${file%.*} # remove the extension
-              ext=${file#"base"} # remove the filename before the extension
+              ext=${file#"$base"} # remove the filename before the extension
+              if [[ $ext == $base ]]; then ext=""; else ext=".$ext"; fi # if filename is not empty, add the extension
               echo "moving ${dir}/${file} to artifacts/${file%%.*}-${dir##*/}${ext}"
               mv "${dir}/${file}" "artifacts/${file%%.*}-${dir##*/}${ext}"
             done
