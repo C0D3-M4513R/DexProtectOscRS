@@ -27,9 +27,10 @@ jobs:
             dir=${dir%*/} # remove the trailing "/"
             for file in $dir/*
             do 
-              file=${file##*/} # remove the path before the filename
-              echo "moving ${dir}/${file} to artifacts/${file%%.*}-${dir##*/}${file#*.}"
-              mv "${dir}/${file}" "artifacts/${file%%.*}-${dir##*/}${file#*.}"
+              base=${file##*/} # remove the path before the filename
+              ext=${file:${base}+1} # remove the filename before the extension
+              echo "moving ${dir}/${file} to artifacts/${file%%.*}-${dir##*/}${ext}"
+              mv "${dir}/${file}" "artifacts/${file%%.*}-${dir##*/}${ext}"
             done
             rm -r "${dir}"
           done
