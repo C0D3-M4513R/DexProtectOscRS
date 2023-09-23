@@ -7,6 +7,8 @@ on:
       - v*
   pull_request:
     branches: [main]
+permissions:
+  contents: write
 
 jobs:
   create-release:
