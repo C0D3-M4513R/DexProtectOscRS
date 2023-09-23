@@ -28,7 +28,7 @@ jobs:
             for file in $dir/*
             do 
               file = ${file##*/} # remove the path before the filename
-              mv "artifacts/${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
+              mv "${dir}/${file}" "artifacts/${file%%.*}-${dir}${file#*.}"
             done
             rm -r "${dir}"
           done
