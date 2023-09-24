@@ -60,7 +60,7 @@ jobs:
             name: windows_64-bit
           - os: windows-latest
             target: i686-pc-windows-msvc
-            name: windows_64-bit
+            name: windows_32-bit
           - os: macos-latest
             target: x86_64-apple-darwin
             name: macos_64-bit
