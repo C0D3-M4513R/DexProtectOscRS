@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 use std::ops::IndexMut;
-#[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
 use std::path::PathBuf;
 use std::str::FromStr;
 use eframe::{Frame, Storage};
