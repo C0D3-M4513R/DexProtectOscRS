@@ -1,7 +1,8 @@
 [package]
 name = "dex_protect_osc_rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -36,3 +37,7 @@ unicode-bom = "2"
 [features]
 file_dialog = ["dep:rfd"]
 oscquery = []
+
+[profile.release]
+strip = true
+lto = true
