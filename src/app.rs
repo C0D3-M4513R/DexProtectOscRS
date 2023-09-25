@@ -412,7 +412,7 @@ fn get_id() -> u64 {
 
 fn popup_creator<'a>(
     title: impl Into<egui::WidgetText> + 'a,
-    add_content: impl Fn(&mut App, &mut egui::Ui) + 'a,
+    add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
 ) -> Box<PopupFunc<'a>> {
     popup_creator_collapsible(title, false, add_content)
 }
@@ -420,7 +420,7 @@ fn popup_creator<'a>(
 fn popup_creator_collapsible<'a>(
     title: impl Into<egui::WidgetText> + 'a,
     collapsible: bool,
-    add_content: impl Fn(&mut App, &mut egui::Ui) + 'a,
+    mut add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
 ) -> Box<PopupFunc<'a>> {
     let title = title.into();
     let id = get_id();
