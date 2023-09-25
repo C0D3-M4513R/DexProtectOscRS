@@ -4,8 +4,6 @@ use std::fmt::{Debug, Formatter};
 use std::ops::IndexMut;
 use std::path::PathBuf;
 use std::str::FromStr;
-use eframe::{Frame, Storage};
-use egui::{Context, Ui};
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
 use crate::get_runtime;
@@ -27,6 +25,8 @@ pub struct App<'a>{
     osc_multiplexer_enabled: bool,
     dex_protect_enabled: bool,
     osc_multiplexer_rev_port: Vec<u16>,
+    #[serde(skip)]
+    osc_multiplexer_port_popup: Option<Box<PopupFunc<'a>>>,
     #[serde(skip)]
     osc_thread: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
     #[serde(skip)]
@@ -72,6 +72,7 @@ impl<'a> Default for App<'a>{
             osc_multiplexer_enabled: false,
             dex_protect_enabled: true,
             osc_multiplexer_rev_port: Vec::new(),
+            osc_multiplexer_port_popup: None,
             osc_thread: None,
             osc_join_set: None,
             osc_create_data: OscCreateData::default(),
@@ -142,11 +143,10 @@ impl<'a> App<'a> {
     ) {
         let error_string = error.to_string();
         let label = label.into().clone();
-        self.popups.push_front(popup_creator(title, move |ui| {
+        self.popups.push_front(popup_creator(title, move |_, ui| {
             ui.label(label.clone());
             ui.label("Some developer information below:");
             ui.label(&error_string);
-            ui.button("Close").clicked()
         }));
     }
 
@@ -180,10 +180,9 @@ impl<'a> App<'a> {
                         let time = Instant::now();
                         self.popups.push_back(popup_creator(
                             "OSC Thread Exited",
-                            move |ui| {
+                            move |_, ui| {
                                 ui.label("The OSC Thread (the one that communicates with VRChat) exited unexpectedly.");
                                 ui.label(format!("This happened {:.1} ago. (this updates only when you move your mouse or something changes)", time.elapsed().as_secs_f32()));
-                                ui.button("Close").clicked()
                             })
                         )
                     }
@@ -253,33 +252,36 @@ impl<'a> App<'a> {
         });
         ui.add_space(10.)
     }
-    fn multiplexer_ui(&mut self, ui: &mut Ui) {
+    fn multiplexer_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Osc Multiplexer:");
         ui.label("All ports below will be forwarded to the Osc Send Port.");
         ui.label("This allows you to use multiple Osc Send Applications at the same time.");
+        if ui.add_enabled(self.osc_multiplexer_port_popup.is_none(), egui::Button::new("Manage Ports")).clicked() {
+            self.osc_multiplexer_port_popup = Some(popup_creator_collapsible("Osc Multiplexer Ports:", true, |app, ui|{
+                let mut i = 0;
+                while i < app.osc_multiplexer_rev_port.len(){
+                    ui.horizontal(|ui|{
+                        ui.label(format!("Osc Forward Port {}: ", i));
+                        ui.add(egui::DragValue::new(app.osc_multiplexer_rev_port.index_mut(i)));
+                        if ui.button("Delete")
+                            .on_hover_text("Delete this Port from the list, and replaces it with the last one.")
+                            .clicked()
+                        {
+                            app.osc_multiplexer_rev_port.swap_remove(i);
+                        }
 
-        let mut i = 0;
-        while i < self.osc_multiplexer_rev_port.len(){
-            ui.horizontal(|ui|{
-                ui.label(format!("Osc Forward Port {}: ", i));
-                ui.add(egui::DragValue::new(self.osc_multiplexer_rev_port.index_mut(i)));
-                if ui.button("Delete")
-                    .on_hover_text("Delete this Port from the list, and replaces it with the last one.")
-                    .clicked()
-                {
-                    self.osc_multiplexer_rev_port.swap_remove(i);
+                    });
+                    i+=1;
                 }
-
-            });
-            i+=1;
-        }
-        if ui.button("Add Port").clicked() {
-            self.osc_multiplexer_rev_port.push(0);
+                if ui.button("Add Port").clicked() {
+                    app.osc_multiplexer_rev_port.push(0);
+                }
+            }));
         }
         ui.add_space(10.)
     }
 
-    fn osc_control_ui(&mut self, ui: &mut Ui){
+    fn osc_control_ui(&mut self, ui: &mut egui::Ui){
         ui.heading("Generic Osc Controls:");
         ui.horizontal(|ui|{
             ui.label("IP:");
@@ -332,7 +334,7 @@ impl<'a> App<'a> {
 }
 
 impl<'a> eframe::App for App<'a> {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.check_osc_thread();
         egui::CentralPanel::default().show(ctx, |ui| {
             //create immutable copies
@@ -344,14 +346,14 @@ impl<'a> eframe::App for App<'a> {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(50.));
             }
             if osc_multiplexer_enabled {
-                strip_builder = strip_builder.size(egui_extras::Size::initial(100.));
+                strip_builder = strip_builder.size(egui_extras::Size::exact(90.));
             }
             strip_builder = strip_builder.size(egui_extras::Size::exact(130.))
                 .size(egui_extras::Size::exact(25.));
             if logs_visible {
                 strip_builder = strip_builder.size(egui_extras::Size::remainder());
             }
-            strip_builder.vertical(|mut strip|{
+            strip_builder.vertical(|mut strip| {
                 if dex_protect_enabled {
                     strip.cell(|ui|{
                         self.dex_protect_ui(ui);
@@ -383,42 +385,53 @@ impl<'a> eframe::App for App<'a> {
 
         });
 
-        let mut i = 0;
-        while i < self.popups.len() {
-            let popup = &mut self.popups[i];
-            if popup(ctx, frame) {
-                self.popups.remove(i);
-            } else {
-                i += 1;
+        if let Some(mut popup) = self.osc_multiplexer_port_popup.take() {
+            if popup(self, ctx, frame) {
+                self.osc_multiplexer_port_popup = Some(popup);
             }
         }
+        self.popups = core::mem::take(&mut self.popups).into_iter().filter_map(|mut popup|{
+            if popup(self, ctx, frame) {
+                Some(popup)
+            }else{
+                None
+            }
+        }).collect();
     }
 
-    fn save(&mut self, storage: &mut dyn Storage) {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage,eframe::APP_KEY, self)
     }
 }
-type PopupFunc<'a> = dyn Fn(&'_ egui::Context, &'_ mut eframe::Frame) -> bool + 'a;
+type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ egui::Context, &'_ mut eframe::Frame) -> bool + 'a;
 
 fn get_id() -> u64 {
     static ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
+
 fn popup_creator<'a>(
     title: impl Into<egui::WidgetText> + 'a,
-    add_content: impl Fn(&mut egui::Ui) -> bool + 'a,
+    add_content: impl Fn(&mut App, &mut egui::Ui) + 'a,
+) -> Box<PopupFunc<'a>> {
+    popup_creator_collapsible(title, false, add_content)
+}
+
+fn popup_creator_collapsible<'a>(
+    title: impl Into<egui::WidgetText> + 'a,
+    collapsible: bool,
+    add_content: impl Fn(&mut App, &mut egui::Ui) + 'a,
 ) -> Box<PopupFunc<'a>> {
     let title = title.into();
     let id = get_id();
-    Box::new(move |ctx: &'_ egui::Context, _: &'_ mut eframe::Frame| {
-        let mut clicked = false;
+    let mut open = true;
+    Box::new(move |app:&'_ mut App,ctx: &'_ egui::Context, _: &'_ mut eframe::Frame| {
         egui::Window::new(title.clone())
             .resizable(false)
-            .collapsible(false)
+            .collapsible(collapsible)
+            .open(&mut open)
             .id(egui::Id::new(id))
-            .show(ctx, |ui| {
-                clicked = add_content(ui);
-            });
-        clicked
+            .show(ctx, |ui|add_content(app,ui));
+        open
     })
 }
