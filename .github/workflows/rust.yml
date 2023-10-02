@@ -90,7 +90,7 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.3
       - name: Run build
-        run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }}
+        run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }} --package dex_protect_osc_rs --bin dex_protect_osc_rs
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:

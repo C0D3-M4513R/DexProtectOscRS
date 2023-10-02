@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::future::Future;
 use std::ops::{Index, Shr};
-use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::SystemTime;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use tokio::net::UdpSocket;
 use unicode_bom::Bom;
@@ -12,16 +12,20 @@ use super::OscSender;
 use super::OscCreateData;
 
 pub(super) struct DexOsc {
-    bundles: Vec<OscBundle>,
     osc_recv: UdpSocket,
-    path:PathBuf,
+    handler: DexOscHandler,
+}
+
+#[derive(Clone)]
+struct DexOscHandler {
+    path: Arc<std::path::Path>,
     osc: Arc<OscSender>,
 }
 
 impl DexOsc {
-    pub async fn new(osc_create_data: &OscCreateData, osc:Arc<OscSender>) -> std::io::Result<Self> {
+    pub async fn new(osc_create_data: &OscCreateData, osc: Arc<OscSender>) -> std::io::Result<Self> {
         log::info!("About to Bind OSC UDP receive Socket to {}:{}", osc_create_data.ip,osc_create_data.recv_port);
-        let osc_recv = match UdpSocket::bind((osc_create_data.ip,osc_create_data.recv_port)).await{
+        let osc_recv = match UdpSocket::bind((osc_create_data.ip, osc_create_data.recv_port)).await {
             Ok(v) => v,
             Err(e) => {
                 log::warn!("Failed to Bind and/or connect the OSC UDP receive socket: {}", e);
@@ -31,19 +35,29 @@ impl DexOsc {
         log::info!("Bound OSC UDP receive Socket.");
 
         Ok(DexOsc {
-            bundles: Vec::new(),
             osc_recv,
-            path: osc_create_data.path.clone(),
-            osc
+            handler: DexOscHandler {
+                path: Arc::from(osc_create_data.path.clone()),
+                osc,
+            }
         })
     }
 
-    pub fn listen(mut self, js:&mut tokio::task::JoinSet<Infallible>) {
+    pub fn listen(self, js: &mut tokio::task::JoinSet<Infallible>) {
+        let DexOsc {
+            osc_recv,
+            handler,
+        } = self;
         js.spawn(async move {
+            let message_processor = osc_handler::MessageDestructuring::new(&handler);
             loop {
-                self.check_osc_bundles().await;
+                for (_,r) in message_processor.check_osc_bundles(){
+                    for f in r.to_messages_vec(){
+                        f.await;
+                    }
+                }
                 let mut buf = [0u8; super::OSC_RECV_BUFFER_SIZE];
-                match self.osc_recv.recv(&mut buf).await {
+                match osc_recv.recv(&mut buf).await {
                     Err(e) => {
                         log::error!("Error receiving udp packet. Skipping Packet: {}",e);
                         continue;
@@ -58,53 +72,25 @@ impl DexOsc {
                                 log::trace!("Packet contents were: {:#X?}",&buf[..size]);
                                 continue;
                             }
-                            Ok((_, packet)) => self.handle_packet(packet).await
+                            Ok((_, packet)) => {
+                                for f in message_processor.handle_packet(packet).to_messages_vec(){
+                                    f.await;
+                                }
+                            },
                         }
                     }
-                };
+                }
             }
         });
     }
+}
 
-    async fn check_osc_bundles(&mut self){
-        let mut i = 0;
-        while i < self.bundles.len() {
-            let element = &self.bundles[i];
-            if SystemTime::from(element.timetag) < SystemTime::now() {
-                let content = self.bundles.swap_remove(i).content;
-                self.apply_packets(content).await;
-            }else{
-                i+=1;
-            }
-        }
-    }
+impl osc_handler::MessageHandler for DexOscHandler
+{
+    type Fut = futures::future::Either<futures::future::Ready<Self::Output>,Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
+    type Output = ();
 
-    async fn apply_packets(&mut self, packets:Vec<OscPacket>){
-        for i in packets{
-            self.handle_packet(i).await;
-        }
-    }
-
-    #[async_recursion::async_recursion]
-    async fn handle_packet(&mut self, packet: OscPacket){
-        match packet {
-            OscPacket::Message(msg) => {
-                #[cfg(debug_assertions)]
-                log::trace!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
-                self.handle_message(msg).await;
-            }
-            OscPacket::Bundle(bundle) => {
-                if bundle.timetag.seconds == 0 && bundle.timetag.fractional == 1{
-                    self.apply_packets(bundle.content).await;
-                    return;
-                }
-                log::debug!("Got a OSC Bundle to be applied in {}.{}s {:?}", bundle.timetag.seconds, bundle.timetag.fractional, bundle.timetag.fractional);
-                self.bundles.push(bundle);
-            }
-        }
-    }
-
-    async fn handle_message(&self, message: OscMessage){
+    fn handle_message(&self, message: OscMessage) -> Self::Fut {
         if message.addr.eq_ignore_ascii_case("/avatar/change") {
             let mut id = None;
             for i in &message.args{
@@ -114,25 +100,33 @@ impl DexOsc {
                             id = Some(s);
                         }else{
                             unrecognized_avatar_change(&message.args);
-                            return;
+                            return futures::future::Either::Left(futures::future::ready(()));
                         }
                     }
                     _ => {
                         unrecognized_avatar_change(&message.args);
+                        return futures::future::Either::Left(futures::future::ready(()));
                     }
                 }
             }
-            if let Some(id) = id{
-                self.handle_avatar_change(id).await;
+            if let Some(id) = id {
+                let clone = self.clone();
+                return futures::future::Either::Right(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))))
             }else{
                 log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.")
             }
+        }else{
+            #[cfg(debug_assertions)]
+            log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
         }
+        futures::future::Either::Left(futures::future::ready(()))
     }
+}
 
-    async fn handle_avatar_change(&self, id: &String) {
-        let mut path = self.path.clone();
-        path.push(id);
+impl DexOscHandler {
+    async fn handle_avatar_change(self, id: Arc<str>) {
+        let mut path = self.path.to_path_buf();
+        path.push(id.as_ref());
         path.set_extension("key");
         match tokio::fs::read(path).await{
             Ok(v) => {
@@ -166,17 +160,17 @@ impl DexOsc {
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
                         log::trace!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
-                        whole = match decode_number(whole_str, id){
+                        whole = match decode_number(whole_str, &id){
                             Some(v) => v,
                             None => return
                         };
-                        part = match decode_number(part_string.as_str(), id){
+                        part = match decode_number(part_string.as_str(), &id){
                             Some(v) => v,
                             None => return
                         };
                         part_digits = part_string.len() as u32;
                     }else {
-                        whole = match decode_number(float, id){
+                        whole = match decode_number(float, &id){
                             Some(v) => v,
                             None => return
                         };
@@ -209,6 +203,10 @@ impl DexOsc {
         }
 
     }
+}
+
+fn unrecognized_avatar_change(arg:&Vec<OscType>){
+    log::error!("Received a OSC Message with the address /avatar/change but the first argument was not a string.\n This is unexpected and there might have been a change to VRChat's OSC messages.\n Extraneous Argument: {:#?}", arg);
 }
 
 fn decode_number(number:&str, id:&str) -> Option<u32> {
@@ -276,7 +274,7 @@ fn vecu8_to_vecu16(v:Vec<u8>, be:bool) -> Vec<u16>{
     let len = if v.len()%2 == 0 {
         v.len()
     } else {
-        log::debug!("Uneven amount of bytes read from key file.");
+        log::debug!("Uneven amount of bytes read.");
         v.len()-1
     };
     while i < len{
@@ -299,7 +297,4 @@ fn utf16_buf_to_str(v:Vec<u16>) -> Option<String>{
         }
     }
     return Some(string);
-}
-fn unrecognized_avatar_change(arg:&Vec<OscType>){
-    log::error!("Received a OSC Message with the address /avatar/change but the first argument was not a string.\n This is unexpected and there might have been a change to VRChat's OSC messages.\n Extraneous Argument: {:#?}", arg);
 }

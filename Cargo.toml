@@ -1,42 +1,8 @@
-[package]
-name = "dex_protect_osc_rs"
-version = "0.1.2"
-edition = "2021"
-publish = false
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-#gui stuff
-rfd = {version = "0.12", optional = true}
-egui_tracing = "0.2.1"
-egui_extras = "0.22"
-egui = "0.22"
-eframe = { version = "0.22", default-features = false, features = [
-    #    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-] }
-#Logging
-log = "0.4.19"
-tracing-subscriber = "0.3.17"
-tracing-core = "0.1"
-#Persistant data storage
-serde_derive = "1"
-serde = "1"
-serde_json = "1"
-#async driver
-tokio = { version = "1", features = ["full"] }
-async-recursion = "1"
-#osc
-rosc = "0.10"
-
-unicode-bom = "2"
-
-[features]
-file_dialog = ["dep:rfd"]
-oscquery = []
+[workspace]
+members = [
+    "app",
+    "osc-handler"
+]
 
 [profile.release]
 strip = true
