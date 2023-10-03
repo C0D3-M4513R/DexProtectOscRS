@@ -1,9 +1,15 @@
+
+
 [workspace]
 members = [
     "app",
     "osc-handler"
 ]
+resolver = "2"
 
 [profile.release]
 strip = true
 lto = true
+
+[patch.crates-io]
+egui_tracing = { git = "https://github.com/zakarumych/egui_tracing.git", rev = "87ff66d75a47c1d372806f7d1c5fd60d986ba06b"}
