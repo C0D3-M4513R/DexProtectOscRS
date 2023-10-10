@@ -237,7 +237,16 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
         Bom::Scsu => None,
         Bom::UtfEbcdic => None,
         Bom::Utf1 => None,
-        Bom::Utf7 => None,
+        Bom::Utf7 => {
+            //https://en.wikipedia.org/wiki/UTF-7
+            //> UTF-7 has never been an official standard of the Unicode Consortium.
+            //> It is known to have security issues, which is why software has been changed to disable its use.
+            //> It is prohibited in HTML 5.
+            //
+            //And I guess so will I.
+            log::debug!("Actively ignoring UTF-7 file");
+            None
+        },
         Bom::Utf8 => {
             log::debug!("Detected UTF-8 file.");
             let mut vec_deque = VecDeque::from(v);
