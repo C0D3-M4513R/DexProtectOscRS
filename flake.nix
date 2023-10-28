@@ -5,6 +5,7 @@
     # stable NixOS install.  Mixing EGL library versions doesn't work.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
     utils.url = "github:numtide/flake-utils";
+    rust-overlay.url = "github:oxalica/rust-overlay";
     flake-compat = {
       url = github:edolstra/flake-compat;
       flake = false;
@@ -14,16 +15,8 @@
   outputs = { self, nixpkgs, utils, naersk, ... }:
     utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [
-            (import (fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
-          ];
-        };
-        rustPlatform = makeRustPlatform {
-          cargo = pkgs.rust-bin.stable.latest.default;
-          rustc = pkgs.rust-bin.stable.latest.default;
-        };
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs {inherit system overlays;};
         naersk-lib = pkgs.callPackage naersk { };
         manifest = (builtins.fromTOML (builtins.readFile ./app/Cargo.toml)).package;
         libPath = with pkgs; lib.makeLibraryPath [
@@ -43,6 +36,7 @@
           pname = manifest.name;
           nativeBuildInputs = [ pkgs.makeWrapper ];
           buildInputs = with pkgs; [
+            rust-bin.stable.latest.minimal
             xorg.libxcb
           ];
           postInstall = ''
@@ -56,13 +50,14 @@
 
         devShell = with pkgs; mkShell {
           buildInputs = [
-            cargo
+            rust-bin.stable.latest.default
+            #cargo
             cargo-insta
             pre-commit
-            rust-analyzer
-            rustPackages.clippy
-            rustc
-            rustfmt
+            #rust-analyzer
+            #rustPackages.clippy
+            #rustc
+            #rustfmt
             tokei
 
             xorg.libxcb
