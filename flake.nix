@@ -17,7 +17,10 @@
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {inherit system overlays;};
-        naersk-lib = pkgs.callPackage naersk { };
+        naersk-lib = pkgs.callPackage naersk {
+            cargo = pkgs.rust-bin.stable.latest.default;
+            rustc = pkgs.rust-bin.stable.latest.default;
+        };
         manifest = (builtins.fromTOML (builtins.readFile ./app/Cargo.toml)).package;
         libPath = with pkgs; lib.makeLibraryPath [
           libGL
@@ -39,6 +42,7 @@
             pkgs.rust-bin.stable.latest.default
             xorg.libxcb
           ];
+          buildFeatures = ["file_dialog"];
           postInstall = ''
             wrapProgram "$out/bin/$pname" --prefix LD_LIBRARY_PATH : "${libPath}"
           '';
@@ -50,7 +54,6 @@
 
         devShell = with pkgs; mkShell {
           buildInputs = [
-            pkgs.rust-bin.stable.latest.default
             #cargo
             cargo-insta
             pre-commit
