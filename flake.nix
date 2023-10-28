@@ -12,7 +12,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, utils, naersk, ... }:
+  outputs = { self, nixpkgs, utils, naersk, rust-overlay, ... }:
     utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -40,7 +40,7 @@
             xorg.libxcb
           ];
           postInstall = ''
-            wrapProgram "$out/bin/sixty-two" --prefix LD_LIBRARY_PATH : "${libPath}"
+            wrapProgram "$out/bin/$pname" --prefix LD_LIBRARY_PATH : "${libPath}"
           '';
         };
 
