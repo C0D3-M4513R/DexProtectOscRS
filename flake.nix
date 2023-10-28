@@ -14,9 +14,18 @@
   outputs = { self, nixpkgs, utils, naersk, ... }:
     utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [
+            (import (fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
+          ];
+        };
+        rustPlatform = makeRustPlatform {
+          cargo = pkgs.rust-bin.stable.latest.default;
+          rustc = pkgs.rust-bin.stable.latest.default;
+        };
         naersk-lib = pkgs.callPackage naersk { };
-        manifest = (pkgs.lib.importTOML ./app/Cargo.toml).package;
+        manifest = (builtins.fromTOML (builtins.readFile ./app/Cargo.toml)).package;
         libPath = with pkgs; lib.makeLibraryPath [
           libGL
           libxkbcommon
