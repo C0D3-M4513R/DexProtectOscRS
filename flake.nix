@@ -36,7 +36,7 @@
           pname = manifest.name;
           nativeBuildInputs = [ pkgs.makeWrapper ];
           buildInputs = with pkgs; [
-            rust-bin.stable.latest.minimal
+            pkgs.rust-bin.stable.latest.default
             xorg.libxcb
           ];
           postInstall = ''
@@ -50,7 +50,7 @@
 
         devShell = with pkgs; mkShell {
           buildInputs = [
-            rust-bin.stable.latest.default
+            pkgs.rust-bin.stable.latest.default
             #cargo
             cargo-insta
             pre-commit
