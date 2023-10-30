@@ -30,6 +30,7 @@
           xorg.libXcursor
           xorg.libXi
           xorg.libXrandr
+          fontconfig
         ];
       in
       {
