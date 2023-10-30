@@ -1,2 +1,4 @@
-/target
+target
+/osc-handler/Cargo.lock
 .idea
+result

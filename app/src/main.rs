@@ -24,6 +24,7 @@ fn get_runtime() -> &'static Runtime {
 fn main() {
     let collector = egui_tracing::EventCollector::new();
     tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().pretty())
         .with(tracing_subscriber::filter::filter_fn(|event|{
             if let Some(module) = event.module_path(){
                 let mut bool = *event.level() == tracing_core::Level::TRACE && (module.starts_with("egui") || module.starts_with("eframe"));

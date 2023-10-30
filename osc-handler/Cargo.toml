@@ -1,0 +1,26 @@
+[package]
+name = "osc-handler"
+version = "0.1.0"
+edition = "2021"
+categories = ["network-programming", "osc"]
+publish = false
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#OSC library
+rosc = "0.10"
+#logging
+log = "0.4"
+#to identify non-processed bundles
+uuid = {version = "1", features = ["v4"]}
+#Sorted vec according to a timestamp.
+#This is used to sort to be applied bundles according to their timestamps.
+#This theoretically speeds up checking what bundles to apply, since it can now
+#find the bundles to apply in O(log n) instead of O(n). (binary search instead checking every bundle)
+time = "0.3"
+sorted-vec = "0.8"
+#Mutex for internal mutating access to a buffer of bundles to be applied
+parking_lot = "0.12"
+#We allow an async handler function.
+#Because async recursion is not possible without Boxing, it was opted
+tokio = "1"
