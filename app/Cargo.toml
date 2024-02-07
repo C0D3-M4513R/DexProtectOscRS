@@ -8,20 +8,21 @@ publish = false
 
 [dependencies]
 #gui stuff
-rfd = {version = "0.12", optional = true}
+rfd = {version = "0.13", optional = true}
 egui_tracing = "0.2.1"
-egui_extras = "0.23"
-egui = "0.23"
-eframe = { version = "0.23", default-features = false, features = [
+egui_extras = "0.26"
+egui = "0.26"
+eframe = { version = "0.26", default-features = false, features = [
     #    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 #Logging
-log = "0.4.19"
-tracing-subscriber = "0.3.17"
+log = "0.4"
+tracing-subscriber = "0.3"
 tracing-core = "0.1"
+thiserror = "1.0.56"
 #Persistant data storage
 serde_derive = "1"
 serde = "1"
@@ -32,7 +33,13 @@ rosc = "0.10"
 osc-handler = {path = "../osc-handler", version = "0.1.0"}
 unicode-bom = "2"
 futures = "0.3"
+#cypher
+cbc = { version = "0.1.2", features = ["std"] }
+aes = "0.8.3"
+#block-padding = "0.3.3"
 
 [features]
+default = ["file_dialog"]
 file_dialog = ["dep:rfd"]
+no_decryption_keys = []
 oscquery = []

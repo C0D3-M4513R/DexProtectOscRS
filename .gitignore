@@ -2,3 +2,4 @@ target
 /osc-handler/Cargo.lock
 .idea
 result
+app/src/osc/dex_key.rs

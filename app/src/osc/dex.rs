@@ -5,6 +5,8 @@ use std::ops::{Index, Shr};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use aes::cipher::KeyIvInit;
+use cbc::cipher::BlockDecryptMut;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use tokio::net::UdpSocket;
 use unicode_bom::Bom;
@@ -130,6 +132,10 @@ impl DexOscHandler {
         path.set_extension("key");
         match tokio::fs::read(path).await{
             Ok(v) => {
+                let (v, err) = decrpyt(v);
+                if let Some(err) = err {
+                    log::error!("Failed to decrypt the Key for the Avatar id '{id}'. Trying to treat the key as an unencrypted legacy Key.\n Error: {err}");
+                }
                 let mut v = match vecu8_to_str(v){
                     Some(v) => v,
                     None => {
@@ -145,7 +151,7 @@ impl DexOscHandler {
                 let len = if split.len()%2 == 0 {
                     split.len()
                 }else{
-                    log::error!("Found an uneven amount of keys in the Avatar id '{}' key file.\n This is highly unusual and suggests corruption in the key file. \n You should suggest reporting this in the Discord for DexProtect.\n All bets are off from here on out, if unlocking will actually work.", id);
+                    log::error!("Found an uneven amount of keys in the Avatar id '{id}' key file.\n This is highly unusual and suggests corruption in the key file. \n You should suggest reporting this in the Discord for DexProtect.\n All bets are off from here on out, if unlocking will actually work.");
                     split.len()-1
                 };
                 let mut i = 0;
@@ -205,6 +211,36 @@ impl DexOscHandler {
     }
 }
 
+#[derive(Copy, Clone, Debug, thiserror::Error)]
+enum DecryptError{
+    #[error("DecryptError:InvalidLength({0})")]
+    InvalidLength(#[from] aes::cipher::InvalidLength),
+    #[error("DecryptError:UnpadError({0})")]
+    UnpadError(#[from] aes::cipher::block_padding::UnpadError),
+}
+
+//Sorry for those people wanting to build this themselves.
+//If I were to commit the Key and IV, it would defeat the entire purpose.
+//Consider this a crackme challenge, under the terms that you do not redistribute those keys.
+#[cfg(not(feature = "no_decryption_keys"))]
+include!("dex_key.rs");
+#[cfg(feature = "no_decryption_keys")]
+const KEY: [u8; 32] = [0; 32];
+#[cfg(feature = "no_decryption_keys")]
+const IV: [u8;16] = [0; 16];
+
+
+fn decrpyt(file: Vec<u8>) -> (Vec<u8>, Option<DecryptError>) {
+    match cbc::Decryptor::<aes::Aes256>::new_from_slices(
+            &KEY,
+            &IV
+        ).map_err(DecryptError::from)
+        .and_then(|aes|aes.decrypt_padded_vec_mut::<cbc::cipher::block_padding::Pkcs7>(file.as_slice()).map_err(DecryptError::from)) {
+        Ok(v) => (v, None),
+        Err(err) => (file, Some(err)),
+    }
+}
+
 fn unrecognized_avatar_change(arg:&Vec<OscType>){
     log::error!("Received a OSC Message with the address /avatar/change but the first argument was not a string.\n This is unexpected and there might have been a change to VRChat's OSC messages.\n Extraneous Argument: {:#?}", arg);
 }
@@ -222,12 +258,14 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
     let bom = unicode_bom::Bom::from(v.as_slice());
     match bom {
         Bom::Null => {
+//        Bom::Null => {
+//             log::debug!("No BOM Detected. Assuming UTF-16LE.");
+//             let utf16_buf = vecu8_to_vecu16(v,false);
+//             log::debug!("Decoded {} u16 values.", utf16_buf.len());
+//             utf16_buf_to_str(utf16_buf)
+//         }
             log::debug!("No BOM Detected. Assuming UTF-8.");
-            let mut vec_deque = VecDeque::from(v);
-            vec_deque.pop_front();
-            vec_deque.pop_front();
-            vec_deque.pop_front();
-            match String::from_utf8(vec_deque.into()) {
+            match String::from_utf8(v.into()) {
                 Ok(v) => Some(v),
                 Err(_) => None,
             }

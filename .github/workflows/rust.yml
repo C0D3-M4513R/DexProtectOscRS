@@ -47,6 +47,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: Generate dex_key.rs
+      run: echo "${{ secrets.DEX_AES_KEYS }}" > app/src/osc/dex_key.rs
     - uses: cachix/install-nix-action@v20
       with:
         nix_path: nixpkgs=channel:nixos-23.05
@@ -82,7 +84,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
+      - name: Generate dex_key.rs
+        run: echo "${{ secrets.DEX_AES_KEYS }}" > app/src/osc/dex_key.rs
       - name: Install Rust
         uses: moonrepo/setup-rust@v1
         with:
