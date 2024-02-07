@@ -12,12 +12,14 @@ permissions:
 
 jobs:
   create-release:
-    needs: build
+    needs:
+     - build
+     - nixbuild
     runs-on: ubuntu-latest
     if: github.ref_type == 'tag'
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
       - name: Rename and move artifacts
@@ -41,7 +43,18 @@ jobs:
         with:
           generateReleaseNotes: true
           artifacts: "artifacts/*"
-
+  nixbuild:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Generate dex_key.rs
+      run: echo "${{ secrets.DEX_AES_KEYS }}" > app/src/osc/dex_key.rs
+    - uses: cachix/install-nix-action@v25
+      with:
+        nix_path: nixpkgs=channel:nixos-23.05
+    - uses: DeterminateSystems/magic-nix-cache-action@v3
+    - run: nix-build
+    - run: nix-shell --run "echo OK"
   build:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -70,8 +83,9 @@ jobs:
       fail-fast: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
+      - name: Generate dex_key.rs
+        run: echo "${{ secrets.DEX_AES_KEYS }}" > app/src/osc/dex_key.rs
       - name: Install Rust
         uses: moonrepo/setup-rust@v1
         with:
@@ -88,11 +102,11 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.4
       - name: Run build
-        run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }}
+        run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }} --package dex_protect_osc_rs --bin dex_protect_osc_rs
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: |

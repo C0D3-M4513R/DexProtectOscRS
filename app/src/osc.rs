@@ -21,6 +21,7 @@ pub struct OscCreateData {
     pub recv_port:u16,
     pub send_port:u16,
     pub dex_protect_enabled:bool,
+    pub dex_use_bundles: bool,
     pub path: PathBuf,
     pub osc_multiplexer_rev_port: Vec<u16>,
 }
@@ -32,6 +33,7 @@ impl Default for OscCreateData {
             recv_port: OSC_RECV_PORT,
             send_port: OSC_SEND_PORT,
             dex_protect_enabled: true,
+            dex_use_bundles: false,
             path: PathBuf::new(),
             osc_multiplexer_rev_port: Vec::new(),
         }

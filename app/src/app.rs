@@ -20,6 +20,7 @@ pub struct App<'a>{
     #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
     #[serde(skip)]
     file_picker_thread: Option<tokio::task::JoinHandle<Option<PathBuf>>>,
+    dex_use_bundles: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
     osc_multiplexer_enabled: bool,
@@ -45,7 +46,9 @@ impl<'a> Debug for App<'a>{
             .field("path", &self.path);
         #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
         debug.field("file_picker_thread.is_some()", &self.file_picker_thread.is_some());
-        debug.field("osc_recv_port", &self.osc_recv_port)
+        debug
+            .field("dex_use_bundles", &self.dex_use_bundles)
+            .field("osc_recv_port", &self.osc_recv_port)
             .field("osc_send_port", &self.osc_send_port)
             .field("osc_multiplexer_enabled", &self.osc_multiplexer_enabled)
             .field("dex_protect_enabled", &self.dex_protect_enabled)
@@ -67,6 +70,7 @@ impl<'a> Default for App<'a>{
             path: "".to_string(),
             #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
             file_picker_thread: None,
+            dex_use_bundles: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
             osc_multiplexer_enabled: false,
@@ -90,6 +94,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
             recv_port: value.osc_recv_port,
             send_port: value.osc_send_port,
             dex_protect_enabled: value.dex_protect_enabled,
+            dex_use_bundles: value.dex_use_bundles,
             path: PathBuf::from(&value.path),
             osc_multiplexer_rev_port: if value.osc_multiplexer_enabled {value.osc_multiplexer_rev_port.clone()} else {Vec::new()},
         })
@@ -203,6 +208,10 @@ impl<'a> App<'a> {
     fn dex_protect_ui(&mut self, ui:&mut egui::Ui){
         ui.heading("DexProtect:");
         ui.horizontal(|ui|{
+            ui.checkbox(&mut self.dex_use_bundles, "Use Osc Bundles: ");
+            ui.hyperlink_to("This is known to cause issues with VRChat.", "https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages");
+        });
+        ui.horizontal(|ui|{
             ui.label("Keys Folder: ");
             #[cfg_attr(not(all(feature = "file_dialog", not(target_arch = "wasm32"))), allow(unused_variables))]
                 let resp = ui.add_enabled(
@@ -215,6 +224,7 @@ impl<'a> App<'a> {
                     resp.on_hover_text("A Dialogue to Pick a Folder is currently open.");
                 }
             }
+
             #[cfg(not(all(feature = "file_dialog", not(target_arch = "wasm32"))))]
             ui.label("(No Browse available. Copy and Paste the Path from your File Browser or type it in manually)");
             #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
@@ -343,7 +353,7 @@ impl<'a> eframe::App for App<'a> {
             let logs_visible = self.logs_visible;
             let mut strip_builder = egui_extras::StripBuilder::new(ui);
             if dex_protect_enabled {
-                strip_builder = strip_builder.size(egui_extras::Size::exact(50.));
+                strip_builder = strip_builder.size(egui_extras::Size::exact(80.));
             }
             if osc_multiplexer_enabled {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(90.));
