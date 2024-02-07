@@ -21,6 +21,7 @@ pub(super) struct DexOsc {
 #[derive(Clone)]
 struct DexOscHandler {
     path: Arc<std::path::Path>,
+    dex_use_bundles: bool,
     osc: Arc<OscSender>,
 }
 
@@ -40,6 +41,7 @@ impl DexOsc {
             osc_recv,
             handler: DexOscHandler {
                 path: Arc::from(osc_create_data.path.clone()),
+                dex_use_bundles: osc_create_data.dex_use_bundles,
                 osc,
             }
         })
@@ -131,12 +133,12 @@ impl DexOscHandler {
         path.push(id.as_ref());
         path.set_extension("key");
         match tokio::fs::read(path).await{
-            Ok(v) => {
-                let (v, err) = decrpyt(v);
+            Ok(potentially_decrypted) => {
+                let (v, err) = decrpyt(potentially_decrypted);
                 if let Some(err) = err {
                     log::error!("Failed to decrypt the Key for the Avatar id '{id}'. Trying to treat the key as an unencrypted legacy Key.\n Error: {err}");
                 }
-                let mut v = match vecu8_to_str(v){
+                let mut decoded = match vecu8_to_str(v){
                     Some(v) => v,
                     None => {
                         log::error!("Failed to decode the Avatar id '{}' Key file. Refusing to unlock.", id);
@@ -144,10 +146,12 @@ impl DexOscHandler {
                     }
                 };
                 #[cfg(debug_assertions)]
-                log::debug!("Decoded Avatar id '{}' Key file: '{}'", id, v);
-                let mut key = Vec::new();
-                v = v.replace(",",".");
-                let split:Vec<&str> = v.split("|").collect();
+                log::debug!("Decoded Avatar id '{}' Key file: '{}'", id, decoded);
+                let mut key:Vec<rosc::OscPacket> = Vec::new();
+                decoded = decoded.replace(",", ".");
+                #[cfg(debug_assertions)]
+                log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
+                let split:Vec<&str> = decoded.split("|").collect();
                 let len = if split.len()%2 == 0 {
                     split.len()
                 }else{
@@ -184,19 +188,29 @@ impl DexOscHandler {
                         part_digits = 0;
                     }
                     let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
-                    key.push(OscPacket::Message(OscMessage{
-                        addr: format!("/avatar/parameters/{}", split[i+1]),
-                        args: vec![OscType::Float(amount)],
-                    }));
+                    if self.dex_use_bundles {
+                        key.push(OscPacket::Message(OscMessage{
+                            addr: format!("/avatar/parameters/{}", split[i+1]),
+                            args: vec![OscType::Float(amount)],
+                        }));
+                    }else {
+                        self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
+                            addr: format!("/avatar/parameters/{}", split[i+1]),
+                            args: vec![OscType::Float(amount)],
+                        })).await;
+                    }
                     i+=2;
                 }
-                self.osc.send_message_with_logs(&OscPacket::Bundle(OscBundle{
-                    timetag: rosc::OscTime{
-                        seconds: 0,
-                        fractional: 1
-                    },
-                    content: key
-                })).await;
+                if self.dex_use_bundles {
+                    log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
+                    self.osc.send_message_with_logs(&OscPacket::Bundle(OscBundle{
+                        timetag: rosc::OscTime{
+                            seconds: 0,
+                            fractional: 1
+                        },
+                        content: key
+                    })).await;
+                }
                 log::info!("Avatar Change Detected to Avatar id '{}'. Key was detected, has been decoded and the Avatar has been Unlocked.", id);
             }
             Err(e) => {
