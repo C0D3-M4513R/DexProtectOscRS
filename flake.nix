@@ -32,6 +32,15 @@
           xorg.libXrandr
           fontconfig
         ];
+        buildInputs = with pkgs; [
+          pkgs.rust-bin.stable.latest.default
+          xorg.libxcb
+          pkgs.pkg-config
+          pkgs.glib
+          pkgs.gtk3
+          pkgs.gcc
+        ];
+  
       in
       {
         defaultPackage = naersk-lib.buildPackage {
@@ -39,14 +48,7 @@
           doCheck = true;
           pname = manifest.name;
           nativeBuildInputs = [ pkgs.makeWrapper ];
-          buildInputs = with pkgs; [
-            pkgs.rust-bin.stable.latest.default
-            xorg.libxcb
-            pkgs.pkg-config
-            pkgs.glib
-            pkgs.gtk3
-            pkgs.gcc
-          ];
+          buildInputs = buildInputs;
           cargoBuildOptions = defaultOptions: defaultOptions ++ ["--features file_dialog"];
           postInstall = ''
             wrapProgram "$out/bin/$pname" --prefix LD_LIBRARY_PATH : "${libPath}"
@@ -58,7 +60,7 @@
         };
 
         devShell = with pkgs; mkShell {
-          buildInputs = [
+          buildInputs = buildInputs ++ [
             #cargo
             cargo-insta
             pre-commit
