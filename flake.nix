@@ -3,12 +3,12 @@
     naersk.url = "github:nmattia/naersk/master";
     # This must be the stable nixpkgs if you're running the app on a
     # stable NixOS install.  Mixing EGL library versions doesn't work.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
     utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-compat = {
       url = github:edolstra/flake-compat;
-      flake = false;
+      flake = true;
     };
   };
 
@@ -22,7 +22,12 @@
             rustc = pkgs.rust-bin.stable.latest.default;
         };
         manifest = (builtins.fromTOML (builtins.readFile ./app/Cargo.toml)).package;
-        libPath = with pkgs; lib.makeLibraryPath [
+        commonBuildInputs = with pkgs; [
+          gsettings-desktop-schemas #https://nixos.org/manual/nixpkgs/unstable/#ssec-gnome-common-issues
+          xorg.libxcb
+          gtk3.dev
+          pkg-config
+
           libGL
           libxkbcommon
           wayland
@@ -30,29 +35,27 @@
           xorg.libXcursor
           xorg.libXi
           xorg.libXrandr
+          xorg.libxcb
           fontconfig
         ];
-        buildInputs = with pkgs; [
-          pkgs.rust-bin.stable.latest.default
-          xorg.libxcb
-          pkgs.pkg-config
-          pkgs.glib
-          pkgs.gtk3
-          pkgs.gcc
+        runtimeDependencies = with pkgs; [
+          libGL
+          libxkbcommon
         ];
-  
       in
       {
         defaultPackage = naersk-lib.buildPackage {
           src = pkgs.lib.cleanSource ./.;
           doCheck = true;
           pname = manifest.name;
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          buildInputs = buildInputs;
-          cargoBuildOptions = defaultOptions: defaultOptions ++ ["--features file_dialog"];
-          postInstall = ''
-            wrapProgram "$out/bin/$pname" --prefix LD_LIBRARY_PATH : "${libPath}"
-          '';
+          nativeBuildInputs = [
+            pkgs.autoPatchelfHook
+            pkgs.wrapGAppsHook
+          ];
+          runtimeDependencies = runtimeDependencies;
+          buildInputs = with pkgs; [
+            pkgs.rust-bin.stable.latest.default
+          ] ++ commonBuildInputs;
         };
 
         defaultApp = utils.lib.mkApp {
@@ -60,7 +63,7 @@
         };
 
         devShell = with pkgs; mkShell {
-          buildInputs = buildInputs ++ [
+          buildInputs = [
             #cargo
             cargo-insta
             pre-commit
@@ -69,11 +72,9 @@
             #rustc
             #rustfmt
             tokei
-
-            xorg.libxcb
-          ];
+          ] ++ commonBuildInputs;
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
-          LD_LIBRARY_PATH = libPath;
+          LD_LIBRARY_PATH = lib.makeLibraryPath commonBuildInputs;
           GIT_EXTERNAL_DIFF = "${difftastic}/bin/difft";
         };
       });
