@@ -53,7 +53,6 @@
             pkgs.wrapGAppsHook
           ];
           runtimeDependencies = runtimeDependencies;
-          buildFeatures = ["file_dialog"];
           buildInputs = with pkgs; [
             pkgs.rust-bin.stable.latest.default
           ] ++ commonBuildInputs;

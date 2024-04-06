@@ -40,16 +40,15 @@ fn main() {
     let rt = get_runtime();
     let _a = rt.enter(); // "_" as a variable name immediately drops the value, causing no tokio runtime to be registered. "_a" does not.
     log::info!("Tokio Runtime initialized");
-    let native_options = eframe::NativeOptions::default();
     if let Some(err) = eframe::run_native(
         "DexProtectOSC-RS",
-        native_options,
-        Box::new(|cc| Box::new(app::App::new(collector, cc))),
+        eframe::NativeOptions::default(),
+        Box::new(|cc| Box::new(app::App::new(egui_tracing::EventCollector::new(), cc))),
     )
         .err()
     {
         eprintln!(
-            "Error in eframe whilst trying to start the application: {}",
+            "Error in eframe whilst trying to start the application: {:?}",
             err
         );
     }

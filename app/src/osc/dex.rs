@@ -130,7 +130,10 @@ impl osc_handler::MessageHandler for DexOscHandler
 impl DexOscHandler {
     async fn handle_avatar_change(self, id: Arc<str>) {
         let mut path = self.path.to_path_buf();
-        path.push(id.as_ref());
+        if path.file_name().is_some() {
+            path.push(id.as_ref());
+        }
+        path.set_file_name(id.as_ref());
         path.set_extension("key");
         match tokio::fs::read(path).await{
             Ok(potentially_decrypted) => {
