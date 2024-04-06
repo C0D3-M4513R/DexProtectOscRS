@@ -4,6 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::IndexMut;
 use std::path::PathBuf;
 use std::str::FromStr;
+use egui::Widget;
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
 use crate::get_runtime;
@@ -379,18 +380,18 @@ impl<'a> eframe::App for App<'a> {
                 });
                 strip.cell(|ui| {
                     ui.horizontal(|ui|{
-                        if ui.button(if self.logs_visible {"Hide Logs"} else { "Show Logs"}).clicked() {
-                        self.logs_visible = !self.logs_visible;
-                        }
+                        // if ui.button(if self.logs_visible {"Hide Logs"} else { "Show Logs"}).clicked() {
+                        //     self.logs_visible = !self.logs_visible;
+                        // }
                         ui.checkbox(&mut self.dex_protect_enabled, "Enable DexProtectOSC");
                         ui.checkbox(&mut self.osc_multiplexer_enabled, "Enable Osc Multiplexer (allows for multiple Osc send applications) ");
                     });
                 });
-                if logs_visible {
-                    strip.cell(|ui|{
-                        ui.add(egui_tracing::Logs::new(self.collector.clone()));
-                    });
-                }
+                // if logs_visible {
+                //     strip.cell(|ui|{
+                //         egui_tracing::Logs::new(self.collector.clone()).ui(ui);
+                //     });
+                // }
             });
 
         });
