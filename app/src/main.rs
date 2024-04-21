@@ -43,7 +43,7 @@ fn main() {
     if let Some(err) = eframe::run_native(
         "DexProtectOSC-RS",
         eframe::NativeOptions::default(),
-        Box::new(|cc| Box::new(app::App::new(egui_tracing::EventCollector::new(), cc))),
+        Box::new(|cc| Box::new(app::App::new(collector, cc))),
     )
         .err()
     {
