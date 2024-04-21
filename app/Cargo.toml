@@ -8,11 +8,11 @@ publish = false
 
 [dependencies]
 #gui stuff
-rfd = {version = "0.13", optional = true}
-egui_tracing = "0.2.1"
-egui_extras = "0.26"
-egui = "0.26"
-eframe = { version = "0.26", default-features = false, features = [
+rfd = {version = "0.14", optional = true}
+egui_tracing = "0.2.2"
+egui_extras = "0.27"
+egui = "0.27"
+eframe = { version = "0.27", default-features = false, features = [
     #    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
