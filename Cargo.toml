@@ -11,5 +11,5 @@ resolver = "2"
 strip = true
 lto = true
 
-[patch.crates-io]
-egui_tracing = { git = "https://github.com/C0D3-M4513R/egui_tracing.git", rev = "bc677360e9130747a5172ad006127d29fb86e026"}
+#[patch.crates-io]
+#egui_tracing = { git = "https://github.com/C0D3-M4513R/egui_tracing.git", rev = "bc677360e9130747a5172ad006127d29fb86e026"}
