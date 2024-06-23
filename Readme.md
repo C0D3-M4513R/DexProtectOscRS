@@ -35,6 +35,8 @@ A known issue with the Logs module is, that when scrolling all the way to the bo
 If that happens, just scroll up, so you are not on the very bottom anymore and the wiggling should stop.
 
 # Notes
+OscQuery is powered by: https://github.com/Raphiiko/oyasumivr_oscquery
+
 The Application cannot handle Messages larger than 8KiB.
 If a larger Message is received, an error will be logged and the message will be discarded.
 This is an arbitrary limit I set, because I don't think there will be reasonable OSC messages larger than that.
