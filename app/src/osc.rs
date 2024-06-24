@@ -1,7 +1,10 @@
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
+use oyasumivr_oscquery::{Error, OSCQueryInitError};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -17,6 +20,7 @@ pub const OSC_SEND_PORT:u16 = 9000;
 const OSC_RECV_BUFFER_SIZE:usize = 8192;
 #[derive(Debug, Clone,Serialize,Deserialize)]
 pub struct OscCreateData {
+    pub use_oscquery: bool,
     pub ip: IpAddr,
     pub recv_port:u16,
     pub send_port:u16,
@@ -29,6 +33,7 @@ pub struct OscCreateData {
 impl Default for OscCreateData {
     fn default() -> Self {
         OscCreateData{
+            use_oscquery: true,
             ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             recv_port: OSC_RECV_PORT,
             send_port: OSC_SEND_PORT,
@@ -41,7 +46,49 @@ impl Default for OscCreateData {
 }
 
 pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::Result<tokio::task::JoinSet<Infallible>> {
-    let osc = match OscSender::new(osc_create_data.ip, osc_create_data.send_port).await {
+    let ip;
+    let send_port;
+
+    if osc_create_data.use_oscquery{
+        if let Err(err) = oyasumivr_oscquery::client::init().await {
+            match err{
+                Error::IO(err) => return Err(err),
+                Error::LocalIpUnavailable(err) => return Err(std::io::Error::other(err)),
+                Error::InitError(err) => match err{
+                    OSCQueryInitError::AlreadyInitialized => {
+                        log::error!("oscquery failed with: Already Initialized");
+                        return Err(std::io::Error::other("AlreadyInizialized"))
+                    },
+                    OSCQueryInitError::OSCQueryinitFailed => {
+                        log::error!("oscquery failed with: OSCQueryInitializationFailed");
+                        return Err(std::io::Error::other("OSCQueryInitializationFailed"))
+                    },
+                    OSCQueryInitError::MDNSDaemonInitFailed(err) => {
+                        log::error!("oscquery failed with: MDNSDaemonInitFailed({})", err);
+                        return Err(std::io::Error::other(err))
+                    },
+                    OSCQueryInitError::NotYetInitialized => {
+                        log::error!("oscquery failed with: NotYetInitialized");
+                        return Err(std::io::Error::other("NotYetInitialized"))
+                    },
+                }
+                Error::IPV4Unavailable() => return Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable)),
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        if let Some((host, port)) = oyasumivr_oscquery::client::get_vrchat_oscquery_address().await {
+            send_port = port;
+            ip = IpAddr::from_str(host.as_str()).map_err(|err|std::io::Error::other(err))?;
+        }else{
+            log::error!("oscquery didn't find address");
+            return Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+        }
+    } else {
+        ip = osc_create_data.ip;
+        send_port = osc_create_data.send_port;
+    }
+    log::info!("Trying to connect to OSC on '{ip}:{send_port}'");
+    let osc = match OscSender::new(ip, send_port).await {
         Ok(v) => Arc::new(v),
         Err(e) => {
             log::error!("Failed to create OSC Sender: {}", e);

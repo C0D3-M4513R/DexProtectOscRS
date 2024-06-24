@@ -21,6 +21,7 @@ pub struct App<'a>{
     #[serde(skip)]
     file_picker_thread: Option<tokio::task::JoinHandle<Option<PathBuf>>>,
     dex_use_bundles: bool,
+    use_oscquery: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
     osc_multiplexer_enabled: bool,
@@ -48,6 +49,7 @@ impl<'a> Debug for App<'a>{
         debug.field("file_picker_thread.is_some()", &self.file_picker_thread.is_some());
         debug
             .field("dex_use_bundles", &self.dex_use_bundles)
+            .field("use_oscquery", &self.use_oscquery)
             .field("osc_recv_port", &self.osc_recv_port)
             .field("osc_send_port", &self.osc_send_port)
             .field("osc_multiplexer_enabled", &self.osc_multiplexer_enabled)
@@ -71,6 +73,7 @@ impl<'a> Default for App<'a>{
             #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
             file_picker_thread: None,
             dex_use_bundles: false,
+            use_oscquery: true,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
             osc_multiplexer_enabled: false,
@@ -90,6 +93,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
     fn try_from(value: &App<'a>) -> Result<Self, Self::Error> {
         Ok(OscCreateData{
+            use_oscquery: value.use_oscquery,
             ip: std::net::IpAddr::from_str(value.ip.as_str())?,
             recv_port: value.osc_recv_port,
             send_port: value.osc_send_port,
@@ -156,7 +160,6 @@ impl<'a> App<'a> {
     }
 
     fn spawn_osc_from_creation_data(&mut self){
-        log::info!("Trying to connect to OSC on IP '{}'", self.osc_create_data.ip);
         let osc_create_data = self.osc_create_data.clone();
         self.osc_thread = Some(tokio::spawn(async move {
             let mut js = crate::osc::create_and_start_osc(&osc_create_data).await?;
@@ -293,23 +296,26 @@ impl<'a> App<'a> {
 
     fn osc_control_ui(&mut self, ui: &mut egui::Ui){
         ui.heading("Generic Osc Controls:");
-        ui.horizontal(|ui|{
-            ui.label("IP:");
-            ui.text_edit_singleline(&mut self.ip);
-        });
-        ui.horizontal(|ui|{
-            ui.label("OSC Receive Port:");
-            ui.add(egui::DragValue::new(&mut self.osc_recv_port));
-            if ui.button("Reset to Default").clicked() {
-                self.osc_recv_port = crate::osc::OSC_RECV_PORT;
-            }
-        });
-        ui.horizontal(|ui|{
-            ui.label("OSC Send Port:");
-            ui.add(egui::DragValue::new(&mut self.osc_send_port));
-            if ui.button("Reset to Default").clicked() {
-                self.osc_send_port = crate::osc::OSC_SEND_PORT;
-            }
+        ui.checkbox(&mut self.use_oscquery, "Use OscQuery:");
+        ui.add_enabled(!self.use_oscquery, |ui:&mut egui::Ui|{
+            ui.horizontal(|ui|{
+                ui.label("IP:");
+                ui.text_edit_singleline(&mut self.ip);
+            });
+            ui.horizontal(|ui|{
+                ui.label("OSC Receive Port:");
+                ui.add(egui::DragValue::new(&mut self.osc_recv_port));
+                if ui.button("Reset to Default").clicked() {
+                    self.osc_recv_port = crate::osc::OSC_RECV_PORT;
+                }
+            });
+            ui.horizontal(|ui|{
+                ui.label("OSC Send Port:");
+                ui.add(egui::DragValue::new(&mut self.osc_send_port));
+                if ui.button("Reset to Default").clicked() {
+                    self.osc_send_port = crate::osc::OSC_SEND_PORT;
+                }
+            }).response
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
         ui.horizontal(|ui|{
