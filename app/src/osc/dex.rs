@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::convert::Infallible;
 use std::future::Future;
 use std::ops::{Index, Shr};
 use std::pin::Pin;
@@ -8,93 +7,33 @@ use std::sync::Arc;
 use aes::cipher::KeyIvInit;
 use cbc::cipher::BlockDecryptMut;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
-use tokio::net::UdpSocket;
 use unicode_bom::Bom;
 use super::OscSender;
 use super::OscCreateData;
 
-pub(super) struct DexOsc {
-    osc_recv: UdpSocket,
-    handler: DexOscHandler,
-}
-
 #[derive(Clone)]
-struct DexOscHandler {
+pub(super) struct DexOscHandler {
     path: Arc<std::path::Path>,
     dex_use_bundles: bool,
     osc: Arc<OscSender>,
 }
 
-impl DexOsc {
-    pub async fn new(osc_create_data: &OscCreateData, osc: Arc<OscSender>) -> std::io::Result<Self> {
-        log::info!("About to Bind OSC UDP receive Socket to {}:{}", osc_create_data.ip,osc_create_data.recv_port);
-        let osc_recv = match UdpSocket::bind((osc_create_data.ip, osc_create_data.recv_port)).await {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("Failed to Bind and/or connect the OSC UDP receive socket: {}", e);
-                Err(e)?
-            }
-        };
-        log::info!("Bound OSC UDP receive Socket.");
-
-        Ok(DexOsc {
-            osc_recv,
-            handler: DexOscHandler {
-                path: Arc::from(osc_create_data.path.clone()),
-                dex_use_bundles: osc_create_data.dex_use_bundles,
-                osc,
-            }
-        })
-    }
-
-    pub fn listen(self, js: &mut tokio::task::JoinSet<Infallible>) {
-        let DexOsc {
-            osc_recv,
-            handler,
-        } = self;
-        js.spawn(async move {
-            let message_processor = osc_handler::MessageDestructuring::new(&handler);
-            loop {
-                for (_,r) in message_processor.check_osc_bundles(){
-                    for f in r.to_messages_vec(){
-                        f.await;
-                    }
-                }
-                let mut buf = [0u8; super::OSC_RECV_BUFFER_SIZE];
-                match osc_recv.recv(&mut buf).await {
-                    Err(e) => {
-                        log::error!("Error receiving udp packet. Skipping Packet: {}",e);
-                        continue;
-                    }
-                    Ok(size) => {
-                        #[cfg(debug_assertions)]
-                        log::trace!("Received UDP Packet with size {} ",size);
-                        match rosc::decoder::decode_udp(&buf[..size]) {
-                            Err(e) => {
-                                log::error!("Error decoding udp packet into an OSC Packet: {}", e);
-                                #[cfg(debug_assertions)]
-                                log::trace!("Packet contents were: {:#X?}",&buf[..size]);
-                                continue;
-                            }
-                            Ok((_, packet)) => {
-                                for f in message_processor.handle_packet(packet).to_messages_vec(){
-                                    f.await;
-                                }
-                            },
-                        }
-                    }
-                }
-            }
-        });
+impl DexOscHandler {
+    pub fn new(osc_create_data: &OscCreateData, osc: Arc<OscSender>) -> Self {
+        Self {
+            path: Arc::from(osc_create_data.path.clone()),
+            dex_use_bundles: osc_create_data.dex_use_bundles,
+            osc,
+        }
     }
 }
 
 impl osc_handler::MessageHandler for DexOscHandler
 {
-    type Fut = futures::future::Either<futures::future::Ready<Self::Output>,Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
+    type Fut = futures::future::Either<core::future::Ready<Self::Output>,Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
     type Output = ();
 
-    fn handle_message(&self, message: OscMessage) -> Self::Fut {
+    fn handle(&mut self, message: Arc<OscMessage>) -> Self::Fut {
         if message.addr.eq_ignore_ascii_case("/avatar/change") {
             let mut id = None;
             for i in &message.args{
@@ -104,12 +43,12 @@ impl osc_handler::MessageHandler for DexOscHandler
                             id = Some(s);
                         }else{
                             unrecognized_avatar_change(&message.args);
-                            return futures::future::Either::Left(futures::future::ready(()));
+                            return futures::future::Either::Left(core::future::ready(()));
                         }
                     }
                     _ => {
                         unrecognized_avatar_change(&message.args);
-                        return futures::future::Either::Left(futures::future::ready(()));
+                        return futures::future::Either::Left(core::future::ready(()));
                     }
                 }
             }
@@ -123,7 +62,7 @@ impl osc_handler::MessageHandler for DexOscHandler
             #[cfg(debug_assertions)]
             log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
         }
-        futures::future::Either::Left(futures::future::ready(()))
+        futures::future::Either::Left(core::future::ready(()))
     }
 }
 
@@ -197,22 +136,26 @@ impl DexOscHandler {
                             args: vec![OscType::Float(amount)],
                         }));
                     }else {
-                        self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
+                        if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
                             addr: format!("/avatar/parameters/{}", split[i+1]),
                             args: vec![OscType::Float(amount)],
-                        })).await;
+                        })) {
+                            let _ = v.await;
+                        };
                     }
                     i+=2;
                 }
                 if self.dex_use_bundles {
                     log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
-                    self.osc.send_message_with_logs(&OscPacket::Bundle(OscBundle{
+                    if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Bundle(OscBundle{
                         timetag: rosc::OscTime{
                             seconds: 0,
                             fractional: 1
                         },
                         content: key
-                    })).await;
+                    })){
+                        let _ = v.await;
+                    };
                 }
                 log::info!("Avatar Change Detected to Avatar id '{}'. Key was detected, has been decoded and the Avatar has been Unlocked.", id);
             }

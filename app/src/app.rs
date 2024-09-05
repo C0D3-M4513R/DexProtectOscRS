@@ -24,6 +24,7 @@ pub struct App<'a>{
     osc_recv_port: u16,
     osc_send_port: u16,
     osc_multiplexer_enabled: bool,
+    osc_multiplexer_parse_packets: bool,
     dex_protect_enabled: bool,
     osc_multiplexer_rev_port: Vec<u16>,
     #[serde(skip)]
@@ -74,6 +75,7 @@ impl<'a> Default for App<'a>{
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
             osc_multiplexer_enabled: false,
+            osc_multiplexer_parse_packets: false,
             dex_protect_enabled: true,
             osc_multiplexer_rev_port: Vec::new(),
             osc_multiplexer_port_popup: None,
@@ -97,6 +99,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
             dex_use_bundles: value.dex_use_bundles,
             path: PathBuf::from(&value.path),
             osc_multiplexer_rev_port: if value.osc_multiplexer_enabled {value.osc_multiplexer_rev_port.clone()} else {Vec::new()},
+            osc_multiplexer_parse_packets: value.osc_multiplexer_parse_packets,
         })
     }
 }

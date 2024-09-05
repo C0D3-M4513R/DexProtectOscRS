@@ -1,9 +1,14 @@
+use std::fmt::Debug;
+use std::future::Future;
 use std::net::IpAddr;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 use tokio::net::UdpSocket;
 
 ///Allows for sending OSC Messages
 pub struct OscSender {
-    osc_send:UdpSocket,
+    osc_send:Arc<UdpSocket>,
 }
 async fn bind_and_connect_udp(ip:IpAddr, bind_port:u16, connect_port:u16, way:&str) -> std::io::Result<UdpSocket> {
     log::info!("About to Bind OSC UDP {} Socket on port {}", way,bind_port);
@@ -26,65 +31,83 @@ impl OscSender {
             }
         };
         Ok(Self{
-            osc_send,
+            osc_send: Arc::new(osc_send),
         })
     }
-    /// Sends a OSC Message and returns the amount of bytes sent if successful or any errors.
-    pub async fn send_message_no_logs(&self, message: &rosc::OscPacket) -> Result<usize,OscSendError>{
-
-        let message = rosc::encoder::encode(message)?;
-        match self.osc_send.send(message.as_slice()).await {
-            Ok(v) => Ok(v),
-            Err(err) => Err(OscSendError::Io(err, message)),
-        }
+    /// Sends an OSC Message and returns the amount of bytes sent if successful or any errors.
+    pub fn send_message_no_logs(&self, message: &rosc::OscPacket) -> Result<RawSendMessage<Vec<u8>>, rosc::OscError> {
+        Ok(self.send_raw_packet(rosc::encoder::encode(message)?))
     }
 
     /// Sends a OSC Message via {@link #send_message_no_logs}.
     /// If there are any errors, they will be logged.
     /// If debug assertions are enabled, the sending attempt of the message will be logged and the successful sending will also be logged.
-    pub async fn send_message_with_logs(&self, message: &rosc::OscPacket) {
+    pub fn send_message_with_logs(&self, message: &rosc::OscPacket) -> Result<SendMessageLogs<Vec<u8>>, rosc::OscError> {
         #[cfg(debug_assertions)]
         log::trace!("Sending OSC Message: {:#?}", message);
-        match self.send_message_no_logs(message).await {
-            #[cfg(not(debug_assertions))]
-            Ok(_)=>{},
-            #[cfg(debug_assertions)]
-            Ok(bytes) => {
-                log::debug!("Sent the following OSC Message with {} bytes:{:#?}",bytes,message);
+        match self.send_message_no_logs(message) {
+            Ok(fut) => Ok(SendMessageLogs{fut}),
+            Err(e) => {
+                log::error!("Failed to encode a OSC Message: {}, Packet was: {:#?}",e, message);
+                Err(e)
             }
-            Err(OscSendError::Io(err, v)) => {
-                log::error!("Failed to send a OSC Message: {}, Encoded Packet was: {:#x?}, Osc Message was: {:#?}",err,v.as_slice(), message);
-            },
-            Err(OscSendError::OscError(err)) => {
-                log::error!("Failed to encode a OSC Message: {}, Packet was: {:#?}",err, message);
-            }
-        };
+        }
     }
     
-    pub async fn send_raw_packet(&self, packet: &[u8]) -> std::io::Result<usize>{
-        self.osc_send.send(packet).await
-    }
-
-}
-
-#[derive(Debug)]
-pub enum OscSendError{
-    Io(std::io::Error, Vec<u8>),
-    OscError(rosc::OscError),
-}
-
-impl From<rosc::OscError> for OscSendError{
-    fn from(value: rosc::OscError) -> Self {
-        OscSendError::OscError(value)
-    }
-}
-
-impl std::fmt::Display for OscSendError{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self{
-            OscSendError::Io(v,_) => write!(f,"OscSendError::Io({})",v),
-            OscSendError::OscError(v) => write!(f,"OscSendError::Io({})",v),
+    pub fn send_raw_packet<A:AsRef<[u8]>>(&self, packet: A) -> RawSendMessage<A> {
+        RawSendMessage{
+            message: core::cell::Cell::new(Some(packet)),
+            sender: self.osc_send.clone(),
         }
     }
 }
-impl std::error::Error for OscSendError {}
+
+pub struct SendMessageLogs<A: AsRef<[u8]>+Debug> {
+    fut: RawSendMessage<A>
+}
+pub struct RawSendMessage<A: AsRef<[u8]>> {
+    message: core::cell::Cell<Option<A>>,
+    sender: Arc<UdpSocket>,
+}
+impl<A: AsRef<[u8]>> RawSendMessage<A> {
+    fn poll_send(&self, cx: &mut Context<'_>) -> Poll<(Result<usize, std::io::Error>, A)> {
+        // Panic is ok here because the Future trait says, that you shouldn't poll a Future once ready
+        // The only way this can panic, is if the future resolves to Poll::Ready(Err(_)) and then gets polled again (1st expect)
+        let message = self.message.take().expect("Future was polled again, after it was Ready");
+        self.sender.poll_send(
+            cx,
+            message.as_ref(),
+        ).map(|f|(f,message))
+    }
+}
+impl<A: AsRef<[u8]>> Future for RawSendMessage<A>{
+    type Output = (Result<usize, std::io::Error>, A);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Panic is ok here because the Future trait says, that you shouldn't poll a Future once ready
+        // The only way this can panic, is if the future resolves to Poll::Ready(Err(_)) and then gets polled again (1st expect)
+        self.poll_send(cx)
+    }
+}
+
+
+impl<A: AsRef<[u8]>+Debug> Future for SendMessageLogs<A>{
+    type Output = (Result<usize, std::io::Error>, A);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.fut.poll_send(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready((Ok(v), bytes)) => {
+                #[cfg(debug_assertions)]
+                {
+                    log::debug!("Sent the following OSC Message with {v} bytes:{bytes:#?}");
+                }
+                Poll::Ready((Ok(v), bytes))
+            },
+            Poll::Ready((Err(err), bytes)) => {
+                log::error!("Failed to send a OSC Message: {err}, Encoded Packet was: {bytes:#x?}");
+                Poll::Ready((Err(err), bytes))
+            }
+        }
+    }
+}
