@@ -91,6 +91,8 @@ jobs:
         with:
           cache-target: release
           targets: ${{ matrix.target }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Linux Specific libs install
         if: matrix.os == 'ubuntu-latest'
         uses: awalsh128/cache-apt-pkgs-action@v1
