@@ -269,6 +269,7 @@ impl<'a> App<'a> {
         ui.heading("Osc Multiplexer:");
         ui.label("All messages Received from the Osc Receive Port will be forwarded to the Ports specified in the list below.");
         ui.label("This allows you to use multiple Osc Applications, that need to Receive Messages, at the same time.");
+        ui.checkbox(&mut self.osc_multiplexer_parse_packets, "Parse Packets and Ignore Packets that can't be parsed: ");
         if ui.add_enabled(self.osc_multiplexer_port_popup.is_none(), egui::Button::new("Manage Ports")).clicked() {
             self.osc_multiplexer_port_popup = Some(popup_creator_collapsible("Osc Multiplexer Ports:", true, |app, ui|{
                 let mut i = 0;
