@@ -10,6 +10,7 @@ use crate::get_runtime;
 use crate::osc::OscCreateData;
 
 #[derive(Deserialize, Serialize)]
+#[serde(default)]
 pub struct App<'a>{
     logs_visible: bool,
     #[serde(skip)]

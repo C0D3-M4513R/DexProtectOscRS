@@ -22,6 +22,7 @@ pub const OSC_RECV_PORT:u16 = 9001;
 pub const OSC_SEND_PORT:u16 = 9000;
 
 #[derive(Debug, Clone,Serialize,Deserialize)]
+#[serde(default)]
 pub struct OscCreateData {
     pub ip: IpAddr,
     pub recv_port:u16,
