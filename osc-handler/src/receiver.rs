@@ -91,17 +91,25 @@ impl<
                                     Ok((rest, jsr, jsp, res)) => {
                                         let ja = res.to_messages_vec().into_iter().collect::<futures::future::JoinAll<_>>();
                                         futures::future::join3(jsr, jsp, ja).await;
-                                        let mut new_buf = Vec::with_capacity(max_message_size);
+                                        let mut new_buf = Vec::with_capacity(DEFAULT_ALLOC);
                                         new_buf.extend_from_slice(rest);
                                         new_buf
                                     },
                                     Err(rosc::OscError::BadPacket(reason)) => {
                                         log::trace!("OSC packet not decodable yet? Reason: {reason}");
-                                        continue;
+                                        if buf.len() >= max_message_size {
+                                            Vec::with_capacity(DEFAULT_ALLOC)
+                                        } else{
+                                            continue;
+                                        }
                                     },
                                     Err(rosc::OscError::ReadError(nom::error::ErrorKind::Eof)) => {
                                         log::trace!("Got EOF Read error when trying to deserialize packet. Waiting for more data");
-                                        continue;
+                                        if buf.len() >= max_message_size {
+                                            Vec::with_capacity(DEFAULT_ALLOC)
+                                        } else{
+                                            continue;
+                                        }
                                     },
                                     Err(e) => {
                                         log::error!("Error handling raw packet. Clearing internal receive buffer and skipping packet: {e}");
