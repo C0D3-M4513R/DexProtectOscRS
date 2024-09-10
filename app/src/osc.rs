@@ -27,6 +27,7 @@ pub struct OscCreateData {
     pub ip: IpAddr,
     pub recv_port:u16,
     pub send_port:u16,
+    pub max_message_size: usize,
     pub dex_protect_enabled:bool,
     pub dex_use_bundles: bool,
     pub path: PathBuf,
@@ -40,6 +41,7 @@ impl Default for OscCreateData {
             ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             recv_port: OSC_RECV_PORT,
             send_port: OSC_SEND_PORT,
+            max_message_size: osc_handler::OSC_RECV_BUFFER_SIZE,
             dex_protect_enabled: true,
             dex_use_bundles: false,
             path: PathBuf::new(),
@@ -135,7 +137,7 @@ pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::R
         }
     }
     let mut js = tokio::task::JoinSet::new();
-    OscReceiver::new(osc_create_data.ip, osc_create_data.recv_port, core::iter::once(message_handlers), core::iter::once(packet_handlers), core::iter::once(raw_packet_handlers)).await?.listen(&mut js);
+    OscReceiver::new(osc_create_data.ip, osc_create_data.recv_port, osc_create_data.max_message_size, core::iter::once(message_handlers), core::iter::once(packet_handlers), core::iter::once(raw_packet_handlers)).await?.listen(&mut js);
     log::info!("Started OSC Listener.");
     Ok(js)
 }

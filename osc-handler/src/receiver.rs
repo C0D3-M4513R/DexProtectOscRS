@@ -1,15 +1,21 @@
 use std::convert::Infallible;
+use std::io::ErrorKind;
+use std::mem::MaybeUninit;
 use std::net::IpAddr;
 use std::time::Duration;
 use futures::future::Either;
+use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::time::MissedTickBehavior;
 use crate::multple_handler::OscHandler;
 use super::{MessageDestructuring, MessageHandler, PacketHandler, RawPacketHandler};
 
+const DEFAULT_ALLOC:usize = 1024;
+
 ///Allows for sending OSC Messages
 pub struct OscReceiver<I1, I2, I3> {
     osc_recv:UdpSocket,
+    max_message_size: usize,
     message_handlers: I1,
     packet_handlers: I2,
     raw_packet_handlers: I3,
@@ -21,6 +27,7 @@ impl<I1, I2, I3> OscReceiver<I1, I2, I3> {
     pub async fn new(
         ip:IpAddr,
         port:u16,
+        max_message_size: usize,
         message_handlers: I1,
         packet_handlers: I2,
         raw_packet_handlers: I3,
@@ -35,6 +42,7 @@ impl<I1, I2, I3> OscReceiver<I1, I2, I3> {
         log::info!("Bound OSC UDP receive Socket.");
         Ok(Self{
             osc_recv,
+            max_message_size,
             message_handlers,
             packet_handlers,
             raw_packet_handlers,
@@ -51,6 +59,7 @@ impl<
     pub fn listen(self, js: &mut tokio::task::JoinSet<Infallible>) {
         let Self {
             osc_recv,
+            max_message_size,
             message_handlers,
             packet_handlers,
             raw_packet_handlers,
@@ -63,7 +72,7 @@ impl<
         js.spawn(async move {
             let mut periodic = tokio::time::interval(Duration::from_secs(1));
             periodic.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            let mut buf = [0u8; super::OSC_RECV_BUFFER_SIZE];
+            let mut buf = Vec::with_capacity(DEFAULT_ALLOC);
 
             loop {
                 tokio::select! {
@@ -75,26 +84,36 @@ impl<
                             }
                         }
                     },
-                    (buf, out) = async{ (buf, osc_recv.recv(&mut buf).await) } => {
-                        match out {
+                    out = osc_recv.recv_buf(&mut buf) => {
+                        buf = match out {
                             Err(e) => {
                                 log::error!("Error receiving udp packet. Skipping Packet: {}",e);
-                                continue;
+                                Vec::with_capacity(DEFAULT_ALLOC)
                             }
-                            Ok(size) => {
-                                let (js, res) = handler.handle_raw_packet(&buf[..size]);
-                                let f = match res {
-                                    Ok((js, res)) => {
+                            Ok(_) => {
+                                match handler.handle_raw_packet(buf.as_slice()) {
+                                    Ok((rest, jsr, jsp, res)) => {
                                         let ja = res.to_messages_vec().into_iter().collect::<futures::future::JoinAll<_>>();
-                                        Either::Left(futures::future::join(js, ja))
+                                        futures::future::join3(jsr, jsp, ja).await;
+                                        let mut new_buf = Vec::with_capacity(max_message_size);
+                                        new_buf.extend_from_slice(rest);
+                                        new_buf
                                     },
-                                    Err(_) => {
-                                        Either::Right(core::future::ready((Vec::new(), Vec::new())))
+                                    Err(rosc::OscError::BadPacket(reason)) => {
+                                        log::trace!("OSC packet not decodable yet? Reason: {reason}");
+                                        continue;
+                                    },
+                                    Err(rosc::OscError::ReadError(nom::error::ErrorKind::Eof)) => {
+                                        log::trace!("Got EOF Read error when trying to deserialize packet. Waiting for more data");
+                                        continue;
+                                    },
+                                    Err(e) => {
+                                        log::error!("Error handling raw packet. Clearing internal receive buffer and skipping packet: {e}");
+                                        Vec::with_capacity(max_message_size)
                                     }
-                                };
-                                futures::future::join(js, f).await;
+                                }
                             }
-                        }
+                        };
                     }
                 }
             }

@@ -55,7 +55,7 @@ pub trait RawPacketHandler{
     fn handle<'a>(&mut self, message: &'a[u8]) -> Self::Fut<'a>;
 }
 
-pub struct MessageDestructuring<H, P, R>
+pub(crate) struct MessageDestructuring<H, P, R>
     where
         H: MessageHandler,
         P: PacketHandler,
@@ -87,19 +87,20 @@ where
         }
     }
 
-    pub fn handle_raw_packet<'a>(&mut self, packet: &'a[u8]) -> (R::Fut<'a>, Result<(P::Fut, Results<H::Fut,H::Output>), rosc::OscError>) {
-        let js = self.raw_handler.handle(packet);
+    pub(crate) fn handle_raw_packet<'a>(&mut self, packet_raw: &'a[u8]) -> Result<(&'a[u8], R::Fut<'a>, P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
         #[cfg(debug_assertions)]
-        log::trace!("Received UDP Packet with size {} ",packet.len());
-        match rosc::decoder::decode_udp(packet) {
+        log::trace!("Received UDP Packet with size {} ",packet_raw.len());
+        match rosc::decoder::decode_udp(packet_raw) {
             Err(e) => {
                 log::error!("Error decoding udp packet into an OSC Packet: {}", e);
                 #[cfg(debug_assertions)]
-                log::trace!("Packet contents were: {:#X?}",packet);
-                (js, Err(e))
+                log::trace!("Packet contents were: {:#X?}",packet_raw);
+                Err(e)
             }
-            Ok((_, packet)) => {
-                (js, Ok(self.handle_packet(Arc::new(osc_types_arc::OscPacket::from(packet)))))
+            Ok((rest, packet)) => {
+                let js = self.raw_handler.handle(packet_raw);
+                let (fut, res) = self.handle_packet(Arc::new(osc_types_arc::OscPacket::from(packet)));
+                Ok((rest, js, fut, res))
             },
         }
     }
@@ -113,7 +114,7 @@ where
     /// All processing will happen asynchronously.
     /// The returned [Results] will contain Futures that MUST be awaited, if any sort of processing is desired.
     #[inline]
-    pub fn handle_packet(&mut self, packet: Arc<osc_types_arc::OscPacket>) -> (P::Fut, Results<H::Fut,H::Output>) {
+    pub(crate) fn handle_packet(&mut self, packet: Arc<osc_types_arc::OscPacket>) -> (P::Fut, Results<H::Fut,H::Output>) {
         (self.packet_handler.handle(packet.clone()), self.internal_handle_packet(&packet))
     }
 
@@ -123,7 +124,7 @@ where
     /// All processing will happen asynchronously.
     /// The returned [Results] will contain Futures that MUST be awaited, if any sort of processing is desired.
     #[must_use]
-    pub fn check_osc_bundles(&mut self) -> Vec<(uuid::Uuid,Results<H::Fut,H::Output>)>{
+    pub(crate) fn check_osc_bundles(&mut self) -> Vec<(uuid::Uuid,Results<H::Fut,H::Output>)>{
         let now = time::OffsetDateTime::now_utc();
         let to_apply = {
             let partition_point = self.bundle_buf.partition_point(|x| x.0.key > now);

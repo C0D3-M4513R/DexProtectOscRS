@@ -4,6 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::IndexMut;
 use std::path::PathBuf;
 use std::str::FromStr;
+use egui::Widget;
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
 use crate::get_runtime;
@@ -24,6 +25,7 @@ pub struct App<'a>{
     dex_use_bundles: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
+    max_message_size: usize,
     osc_multiplexer_enabled: bool,
     osc_multiplexer_parse_packets: bool,
     dex_protect_enabled: bool,
@@ -52,6 +54,7 @@ impl<'a> Debug for App<'a>{
             .field("dex_use_bundles", &self.dex_use_bundles)
             .field("osc_recv_port", &self.osc_recv_port)
             .field("osc_send_port", &self.osc_send_port)
+            .field("max_message_size", &self.max_message_size)
             .field("osc_multiplexer_enabled", &self.osc_multiplexer_enabled)
             .field("dex_protect_enabled", &self.dex_protect_enabled)
             .field("osc_multiplexer_rev_port", &self.osc_multiplexer_rev_port)
@@ -75,6 +78,7 @@ impl<'a> Default for App<'a>{
             dex_use_bundles: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
+            max_message_size: osc_handler::OSC_RECV_BUFFER_SIZE,
             osc_multiplexer_enabled: false,
             osc_multiplexer_parse_packets: false,
             dex_protect_enabled: true,
@@ -96,6 +100,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
             ip: std::net::IpAddr::from_str(value.ip.as_str())?,
             recv_port: value.osc_recv_port,
             send_port: value.osc_send_port,
+            max_message_size: value.max_message_size,
             dex_protect_enabled: value.dex_protect_enabled,
             dex_use_bundles: value.dex_use_bundles,
             path: PathBuf::from(&value.path),
@@ -315,6 +320,13 @@ impl<'a> App<'a> {
             if ui.button("Reset to Default").clicked() {
                 self.osc_send_port = crate::osc::OSC_SEND_PORT;
             }
+        });
+        ui.horizontal(|ui|{
+            ui.label("Osc Max Message Size:");
+            egui::DragValue::new(&mut self.max_message_size)
+                .speed(1)
+                .range(1..=usize::try_from(isize::MAX).unwrap_or(usize::MAX))
+                .ui(ui);
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
         ui.horizontal(|ui|{
