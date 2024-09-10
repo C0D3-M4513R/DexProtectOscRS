@@ -35,10 +35,5 @@ A known issue with the Logs module is, that when scrolling all the way to the bo
 If that happens, just scroll up, so you are not on the very bottom anymore and the wiggling should stop.
 
 # Notes
-The Application cannot handle Messages larger than 8KiB.
-If a larger Message is received, an error will be logged and the message will be discarded.
-This is an arbitrary limit I set, because I don't think there will be reasonable OSC messages larger than that.
-Due to Rust's type system and current Application design, this limit is for now hardcoded and non-configurable at runtime.
-If you need to send larger messages, you can either:
-- Change the constant and compile the application yourself
-- Make an issue, and then I will change it or make it configurable at runtime
+- The Application doesn't handle one Udp Packet containting multiple OSC Packets well.
+- The Osc Multplexer might interact wierdly with raw message forwarding. Some bits of packets might be sent multiple times in a row in certain situations.
