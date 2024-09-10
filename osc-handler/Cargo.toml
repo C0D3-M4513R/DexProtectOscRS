@@ -2,13 +2,14 @@
 name = "osc-handler"
 version = "0.1.0"
 edition = "2021"
-categories = ["network-programming", "osc"]
+categories = ["network-programming"]
 publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 #OSC library
 rosc = "0.10"
+nom = "7"
 #logging
 log = "0.4"
 #to identify non-processed bundles
@@ -24,3 +25,4 @@ parking_lot = "0.12"
 #We allow an async handler function.
 #Because async recursion is not possible without Boxing, it was opted
 tokio = "1"
+futures = "0.3.30"

@@ -51,7 +51,7 @@ jobs:
       run: echo "${{ secrets.DEX_AES_KEYS }}" > app/src/osc/dex_key.rs
     - uses: cachix/install-nix-action@v25
       with:
-        nix_path: nixpkgs=channel:nixos-23.05
+        nix_path: nixpkgs=channel:nixos-24.05
     - uses: DeterminateSystems/magic-nix-cache-action@v3
     - run: nix-build
     - run: nix-shell --run "echo OK"
@@ -91,6 +91,8 @@ jobs:
         with:
           cache-target: release
           targets: ${{ matrix.target }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Linux Specific libs install
         if: matrix.os == 'ubuntu-latest'
         uses: awalsh128/cache-apt-pkgs-action@v1
