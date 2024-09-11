@@ -88,12 +88,12 @@ where
     }
 
     pub(crate) fn handle_raw_packet<'a>(&mut self, packet_raw: &'a[u8]) -> Result<(&'a[u8], R::Fut<'a>, P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature="debug_log"))]
         log::trace!("Received UDP Packet with size {} ",packet_raw.len());
         match rosc::decoder::decode_udp(packet_raw) {
             Err(e) => {
                 log::error!("Error decoding udp packet into an OSC Packet: {}", e);
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::trace!("Packet contents were: {:#X?}",packet_raw);
                 Err(e)
             }
@@ -172,7 +172,7 @@ where
     fn internal_handle_packet(&mut self, packet: &Arc<osc_types_arc::OscPacket>) -> Results<H::Fut,H::Output> {
         match packet.as_ref() {
             osc_types_arc::OscPacket::Message(msg) => {
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::trace!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
                 self.handle_message(msg.clone())
             }

@@ -73,7 +73,7 @@ impl osc_handler::MessageHandler for DexOscHandler
                     Some((abort, params)) => {
                         match params.remove(&message.addr) {
                             None => {
-                                #[cfg(debug_assertions)]
+                                #[cfg(all(debug_assertions, feature="debug_log"))]
                                 {
                                     log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
                                 }
@@ -117,7 +117,7 @@ impl osc_handler::MessageHandler for DexOscHandler
                 self.params = Arc::new(Mutex::new(None));
             }
         }else{
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature="debug_log"))]
             log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
         }
         futures::future::Either::Left(core::future::ready(()))
@@ -145,11 +145,11 @@ impl DexOscHandler {
                         return;
                     }
                 };
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::debug!("Decoded Avatar id '{}' Key file: '{}'", id, decoded);
                 let mut key:Vec<rosc::OscPacket> = Vec::new();
                 decoded = decoded.replace(",", ".");
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
                 let split:Vec<&str> = decoded.split("|").collect();
                 let len = if split.len()%2 == 0 {
@@ -162,7 +162,7 @@ impl DexOscHandler {
                 let mut params = HashMap::with_capacity(len);
                 while i < len {
                     let float = split[i];
-                    #[cfg(debug_assertions)]
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
                     log::trace!("Decoding float: {}", float);
                     let whole:u32;
                     let part:u32;
@@ -234,11 +234,11 @@ impl DexOscHandler {
                             if params.is_empty() {
                                 log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_SEC} seconds.")
                             } else {
-                                #[cfg(debug_assertions)]
+                                #[cfg(all(debug_assertions, feature="debug_log"))]
                                 {
                                     log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_SEC} seconds. There are {} avatar keys, that were not applied. {params:?}", params.len());
                                 }
-                                #[cfg(not(debug_assertions))]
+                                #[cfg(not(all(debug_assertions, feature="debug_log")))]
                                 {
                                     log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_SEC} seconds. There are {} avatar keys, that were not applied.", params.len());
                                 }
