@@ -328,6 +328,9 @@ impl<'a> App<'a> {
                 .speed(1)
                 .range(1..=usize::try_from(isize::MAX).unwrap_or(usize::MAX))
                 .ui(ui);
+            if ui.button("Reset to Default").clicked() {
+                self.max_message_size = osc_handler::OSC_RECV_BUFFER_SIZE;
+            }
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
         ui.horizontal(|ui|{
