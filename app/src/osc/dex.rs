@@ -132,7 +132,7 @@ impl DexOscHandler {
         }
         path.set_file_name(id.as_ref());
         path.set_extension("key");
-        match tokio::fs::read(path).await{
+        match tokio::fs::read(path.as_path()).await{
             Ok(potentially_decrypted) => {
                 let (v, err) = decrpyt(potentially_decrypted);
                 if let Some(err) = err {
@@ -171,6 +171,7 @@ impl DexOscHandler {
                         let (whole_str, part_str) = float.split_at(index);
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
+                        #[cfg(all(debug_assertions, feature="debug_log"))]
                         log::trace!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
                         whole = match decode_number(whole_str, &id){
                             Some(v) => v,
@@ -250,7 +251,7 @@ impl DexOscHandler {
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound{
-                    log::info!("No key detected for avatar ID {}, not unlocking.\nAssuming that the following error actually means the file doesn't exist and not just a directory along the way:\n {}", id, e);
+                    log::info!("No key detected for avatar ID {id} at {}, not unlocking.\nAssuming that the following error actually means the file doesn't exist and not just a directory along the way:\n {e}", path.display());
                     return;
                 }
                 log::error!("Failed to read the Avatar id '{}' from the Avatar Folder: {}.", id, e);
