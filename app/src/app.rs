@@ -15,7 +15,7 @@ use crate::osc::OscCreateData;
 pub struct App<'a>{
     logs_visible: bool,
     #[serde(skip)]
-    collector:egui_tracing::EventCollector,
+    collector:egui_tracing::Logs,
     auto_connect_launch: bool,
     ip:String,
     path:String,
@@ -69,7 +69,7 @@ impl<'a> Default for App<'a>{
     fn default() -> Self {
         Self{
             logs_visible: false,
-            collector:egui_tracing::EventCollector::new(),
+            collector:egui_tracing::Logs::new(egui_tracing::EventCollector::new()),
             auto_connect_launch: true,
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
@@ -127,7 +127,7 @@ impl<'a> App<'a> {
 
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
-        slf.collector = collector;
+        slf.collector = egui_tracing::Logs::new(collector);
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();
         }
@@ -409,7 +409,7 @@ impl<'a> eframe::App for App<'a> {
                 });
                 if logs_visible {
                     strip.cell(|ui|{
-                        ui.add(egui_tracing::Logs::new(self.collector.clone()));
+                        ui.add(&self.collector);
                     });
                 }
             });
