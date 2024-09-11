@@ -409,7 +409,7 @@ impl<'a> eframe::App for App<'a> {
                 });
                 if logs_visible {
                     strip.cell(|ui|{
-                        ui.add(&self.collector);
+                        ui.add(&mut self.collector);
                     });
                 }
             });
