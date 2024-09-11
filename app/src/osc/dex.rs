@@ -162,6 +162,7 @@ impl DexOscHandler {
                 let mut params = HashMap::with_capacity(len);
                 while i < len {
                     let float = split[i];
+                    #[cfg(debug_assertions)]
                     log::trace!("Decoding float: {}", float);
                     let whole:u32;
                     let part:u32;
