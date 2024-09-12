@@ -409,6 +409,7 @@ impl<'a> eframe::App for App<'a> {
                 });
                 if logs_visible {
                     strip.cell(|ui|{
+                        ctx.request_repaint_after_secs(15.);
                         ui.add(&mut self.collector);
                     });
                 }
