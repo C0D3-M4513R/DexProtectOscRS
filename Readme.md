@@ -36,4 +36,3 @@ If that happens, just scroll up, so you are not on the very bottom anymore and t
 
 # Notes
 - The Application doesn't handle one Udp Packet containting multiple OSC Packets well.
-- The Osc Multplexer might interact wierdly with raw message forwarding. Some bits of packets might be sent multiple times in a row in certain situations.
