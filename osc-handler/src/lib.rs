@@ -87,7 +87,7 @@ where
         }
     }
 
-    pub(crate) fn handle_raw_packet<'a>(&mut self, packet_raw: &'a[u8]) -> Result<(&'a[u8], R::Fut<'a>, P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
+    pub(crate) fn handle_raw_packet<'a>(&mut self, mut packet_raw: &'a[u8]) -> Result<(&'a[u8], R::Fut<'a>, P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
         #[cfg(all(debug_assertions, feature="debug_log"))]
         log::trace!("Received UDP Packet with size {} ",packet_raw.len());
         match rosc::decoder::decode_udp(packet_raw) {
@@ -98,7 +98,8 @@ where
                 Err(e)
             }
             Ok((rest, packet)) => {
-                let js = self.raw_handler.handle(packet_raw);
+                //Todo: assumption: rest is always at the end of the packet.
+                let js = self.raw_handler.handle(&packet_raw[..packet_raw.len()-rest.len()]);
                 let (fut, res) = self.handle_packet(Arc::new(osc_types_arc::OscPacket::from(packet)));
                 Ok((rest, js, fut, res))
             },
