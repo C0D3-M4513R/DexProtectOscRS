@@ -43,7 +43,7 @@ impl OscSender {
     /// If there are any errors, they will be logged.
     /// If debug assertions are enabled, the sending attempt of the message will be logged and the successful sending will also be logged.
     pub fn send_message_with_logs(&self, message: &rosc::OscPacket) -> Result<SendMessageLogs<Vec<u8>>, rosc::OscError> {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature="debug_log"))]
         log::trace!("Sending OSC Message: {:#?}", message);
         match self.send_message_no_logs(message) {
             Ok(fut) => Ok(SendMessageLogs{fut}),
@@ -98,7 +98,7 @@ impl<A: AsRef<[u8]>+Debug> Future for SendMessageLogs<A>{
         match self.fut.poll_send(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready((Ok(v), bytes)) => {
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 {
                     log::debug!("Sent the following OSC Message with {v} bytes:{bytes:#?}");
                 }

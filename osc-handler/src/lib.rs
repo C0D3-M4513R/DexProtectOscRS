@@ -62,9 +62,9 @@ pub(crate) struct MessageDestructuring<H, P, R>
         R: RawPacketHandler,
 {
     bundle_buf: Buf,
-    message_handler: H,
-    packet_handler: P,
-    raw_handler: R,
+    pub(crate) message_handler: H,
+    pub(crate) packet_handler: P,
+    pub(crate) raw_handler: R,
 }
 
 impl<H, P, R> MessageDestructuring<H, P, R>
@@ -87,20 +87,42 @@ where
         }
     }
 
-    pub(crate) fn handle_raw_packet<'a>(&mut self, packet_raw: &'a[u8]) -> Result<(&'a[u8], R::Fut<'a>, P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
-        #[cfg(debug_assertions)]
+    pub(crate) fn handle_raw_packets<'a>(&mut self, mut packet_raw: &'a[u8]) -> (&'a[u8], R::Fut<'a>, Vec<(P::Fut, Results<H::Fut,H::Output>)>, Option<rosc::OscError>) {
+        let orig_packet = packet_raw;
+        let mut results = Vec::new();
+        let mut e = None;
+        loop {
+            match self.handle_raw_packet(packet_raw) {
+                Ok((r, jp, res)) => {
+                    results.push((jp, res));
+                    packet_raw = r;
+                    if packet_raw.is_empty() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    e = Some(err);
+                    break;
+                }
+            }
+        }
+        //Todo: assumption: rest is always at the end of the packet.
+        let js = self.raw_handler.handle(&orig_packet[..orig_packet.len()-packet_raw.len()]);
+        return (packet_raw, js, results, e);
+    }
+    pub(crate) fn handle_raw_packet<'a>(&mut self, packet_raw: &'a[u8]) -> Result<(&'a[u8], P::Fut, Results<H::Fut,H::Output>), rosc::OscError> {
+        #[cfg(all(debug_assertions, feature="debug_log"))]
         log::trace!("Received UDP Packet with size {} ",packet_raw.len());
         match rosc::decoder::decode_udp(packet_raw) {
             Err(e) => {
                 log::error!("Error decoding udp packet into an OSC Packet: {}", e);
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::trace!("Packet contents were: {:#X?}",packet_raw);
                 Err(e)
             }
             Ok((rest, packet)) => {
-                let js = self.raw_handler.handle(packet_raw);
                 let (fut, res) = self.handle_packet(Arc::new(osc_types_arc::OscPacket::from(packet)));
-                Ok((rest, js, fut, res))
+                Ok((rest, fut, res))
             },
         }
     }
@@ -172,7 +194,7 @@ where
     fn internal_handle_packet(&mut self, packet: &Arc<osc_types_arc::OscPacket>) -> Results<H::Fut,H::Output> {
         match packet.as_ref() {
             osc_types_arc::OscPacket::Message(msg) => {
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::trace!("Got a OSC Packet: {}: {:?}", msg.addr, msg.args);
                 self.handle_message(msg.clone())
             }

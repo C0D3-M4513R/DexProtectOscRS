@@ -26,3 +26,5 @@ parking_lot = "0.12"
 #Because async recursion is not possible without Boxing, it was opted
 tokio = "1"
 futures = "0.3.30"
+[features]
+debug_log = []

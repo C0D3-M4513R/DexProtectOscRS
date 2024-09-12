@@ -15,7 +15,7 @@ use crate::osc::OscCreateData;
 pub struct App<'a>{
     logs_visible: bool,
     #[serde(skip)]
-    collector:egui_tracing::EventCollector,
+    collector:egui_tracing::Logs,
     auto_connect_launch: bool,
     ip:String,
     path:String,
@@ -69,7 +69,7 @@ impl<'a> Default for App<'a>{
     fn default() -> Self {
         Self{
             logs_visible: false,
-            collector:egui_tracing::EventCollector::new(),
+            collector:egui_tracing::Logs::new(egui_tracing::EventCollector::new()),
             auto_connect_launch: true,
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
@@ -127,7 +127,7 @@ impl<'a> App<'a> {
 
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
-        slf.collector = collector;
+        slf.collector = egui_tracing::Logs::new(collector);
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();
         }
@@ -275,7 +275,8 @@ impl<'a> App<'a> {
         ui.heading("Osc Multiplexer:");
         ui.label("All messages Received from the Osc Receive Port will be forwarded to the Ports specified in the list below.");
         ui.label("This allows you to use multiple Osc Applications, that need to Receive Messages, at the same time.");
-        ui.checkbox(&mut self.osc_multiplexer_parse_packets, "Parse Packets and Ignore Packets that can't be parsed: ");
+
+        ui.checkbox(&mut self.osc_multiplexer_parse_packets, "Parse Packets and Ignore Packets that can't be parsed");
         if ui.add_enabled(self.osc_multiplexer_port_popup.is_none(), egui::Button::new("Manage Ports")).clicked() {
             self.osc_multiplexer_port_popup = Some(popup_creator_collapsible("Osc Multiplexer Ports:", true, |app, ui|{
                 let mut i = 0;
@@ -327,6 +328,9 @@ impl<'a> App<'a> {
                 .speed(1)
                 .range(1..=usize::try_from(isize::MAX).unwrap_or(usize::MAX))
                 .ui(ui);
+            if ui.button("Reset to Default").clicked() {
+                self.max_message_size = osc_handler::OSC_RECV_BUFFER_SIZE;
+            }
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
         ui.horizontal(|ui|{
@@ -405,7 +409,8 @@ impl<'a> eframe::App for App<'a> {
                 });
                 if logs_visible {
                     strip.cell(|ui|{
-                        ui.add(egui_tracing::Logs::new(self.collector.clone()));
+                        ctx.request_repaint_after_secs(15.);
+                        ui.add(&mut self.collector);
                     });
                 }
             });

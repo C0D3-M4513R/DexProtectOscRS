@@ -39,7 +39,8 @@ aes = "0.8.3"
 #block-padding = "0.3.3"
 
 [features]
-default = ["file_dialog"]
+default = ["file_dialog", "egui/deadlock_detection"]
 file_dialog = ["dep:rfd"]
 no_decryption_keys = []
 oscquery = []
+debug_log = []

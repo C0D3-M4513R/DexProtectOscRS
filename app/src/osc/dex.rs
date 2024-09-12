@@ -1,21 +1,27 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::ops::{Index, Shr};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use aes::cipher::KeyIvInit;
 use cbc::cipher::BlockDecryptMut;
+use egui::mutex::Mutex;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use unicode_bom::Bom;
 use super::OscSender;
 use super::OscCreateData;
+
+const DEX_KEY_WAIT_MS:u64 = 1_500;
+const DEX_KEY_WAIT_DESC:&'static str = "1.5 seconds";
 
 #[derive(Clone)]
 pub(super) struct DexOscHandler {
     path: Arc<std::path::Path>,
     dex_use_bundles: bool,
     osc: Arc<OscSender>,
+    params: Arc<Mutex<Option<(tokio::task::AbortHandle, HashMap<String, f32>)>>>,
 }
 
 impl DexOscHandler {
@@ -24,6 +30,7 @@ impl DexOscHandler {
             path: Arc::from(osc_create_data.path.clone()),
             dex_use_bundles: osc_create_data.dex_use_bundles,
             osc,
+            params: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -53,13 +60,66 @@ impl osc_handler::MessageHandler for DexOscHandler
                 }
             }
             if let Some(id) = id {
+                log::info!("Got Avatar Change to {id}");
                 let clone = self.clone();
                 return futures::future::Either::Right(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))))
             }else{
                 log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.")
             }
+        } else if message.addr.starts_with("/avatar/parameters/") {
+            let mut replace = false;
+
+            {
+                let mut params = self.params.lock();
+                match params.as_mut() {
+                    Some((abort, params)) => {
+                        match params.remove(&message.addr) {
+                            None => {
+                                #[cfg(all(debug_assertions, feature="debug_log"))]
+                                {
+                                    log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
+                                }
+                            }
+                            Some(val) => {
+                                if message.args.len() > 1 {
+                                    log::error!("An Avatar Key parameter at the path '{}' was set to multiple values. Currently this is unexpected. Values: {:?}", message.addr, message.args);
+                                    replace = true;
+                                }
+                                match message.args.get(0) {
+                                    None => {
+                                        log::error!("An Avatar Key parameter at the path '{}' was set to no values. Currently this is unexpected.", message.addr);
+                                        replace = true;
+                                    }
+                                    Some(OscType::Float(f)) => {
+                                        if *f != val {
+                                            log::error!("An Avatar Key parameter at the path '{}' was set to a different value than the key. ", message.addr);
+                                            replace = true;
+                                        }
+                                    }
+                                    Some(v) => {
+                                        log::error!("An Avatar Key parameter at the path '{}' was set to a non-float value. Currently this is unexpected. Value: {v:?}", message.addr);
+                                        replace = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if params.is_empty() {
+                            log::info!("Key has been applied successfully.");
+                            abort.abort();
+                            replace = true;
+                        }
+                    }
+                    None => {}
+                }
+            }
+
+            //create a different arc here, so that any cloned arcs are still valid.
+            if replace {
+                self.params = Arc::new(Mutex::new(None));
+            }
         }else{
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature="debug_log"))]
             log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
         }
         futures::future::Either::Left(core::future::ready(()))
@@ -74,7 +134,7 @@ impl DexOscHandler {
         }
         path.set_file_name(id.as_ref());
         path.set_extension("key");
-        match tokio::fs::read(path).await{
+        match tokio::fs::read(path.as_path()).await{
             Ok(potentially_decrypted) => {
                 let (v, err) = decrpyt(potentially_decrypted);
                 if let Some(err) = err {
@@ -87,11 +147,11 @@ impl DexOscHandler {
                         return;
                     }
                 };
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::debug!("Decoded Avatar id '{}' Key file: '{}'", id, decoded);
                 let mut key:Vec<rosc::OscPacket> = Vec::new();
                 decoded = decoded.replace(",", ".");
-                #[cfg(debug_assertions)]
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
                 let split:Vec<&str> = decoded.split("|").collect();
                 let len = if split.len()%2 == 0 {
@@ -101,8 +161,10 @@ impl DexOscHandler {
                     split.len()-1
                 };
                 let mut i = 0;
+                let mut params = HashMap::with_capacity(len);
                 while i < len {
                     let float = split[i];
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
                     log::trace!("Decoding float: {}", float);
                     let whole:u32;
                     let part:u32;
@@ -111,6 +173,7 @@ impl DexOscHandler {
                         let (whole_str, part_str) = float.split_at(index);
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
+                        #[cfg(all(debug_assertions, feature="debug_log"))]
                         log::trace!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
                         whole = match decode_number(whole_str, &id){
                             Some(v) => v,
@@ -130,6 +193,7 @@ impl DexOscHandler {
                         part_digits = 0;
                     }
                     let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
+                    params.insert(format!("/avatar/parameters/{}", split[i+1]), amount);
                     if self.dex_use_bundles {
                         key.push(OscPacket::Message(OscMessage{
                             addr: format!("/avatar/parameters/{}", split[i+1]),
@@ -157,11 +221,39 @@ impl DexOscHandler {
                         let _ = v.await;
                     };
                 }
-                log::info!("Avatar Change Detected to Avatar id '{}'. Key was detected, has been decoded and the Avatar has been Unlocked.", id);
+                log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
+                params.shrink_to_fit();
+                let params_clone = self.params.clone();
+                let jh = tokio::task::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
+                    let params = params_clone.lock();
+                    let params = &*params;
+                    match params {
+                        None => {
+                            log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
+                            log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
+                        }
+                        Some((_, params)) => {
+                            if params.is_empty() {
+                                log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
+                            } else {
+                                #[cfg(all(debug_assertions, feature="debug_log"))]
+                                {
+                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied. {params:?}", params.len());
+                                }
+                                #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                {
+                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied.", params.len());
+                                }
+                            }
+                        }
+                    }
+                });
+                *self.params.lock() = Some((jh.abort_handle(), params));
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound{
-                    log::info!("No key detected for avatar ID {}, not unlocking.\nAssuming that the following error actually means the file doesn't exist and not just a directory along the way:\n {}", id, e);
+                    log::info!("No key detected for avatar ID {id} at {}, not unlocking.\nAssuming that the following error actually means the file doesn't exist and not just a directory along the way:\n {e}", path.display());
                     return;
                 }
                 log::error!("Failed to read the Avatar id '{}' from the Avatar Folder: {}.", id, e);

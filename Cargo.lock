@@ -930,10 +930,11 @@ dependencies = [
 [[package]]
 name = "egui_tracing"
 version = "0.2.2"
-source = "git+https://github.com/grievouz/egui_tracing.git?rev=7604668cb94e1b60b9d6291f15e22bd3fe70dbca#7604668cb94e1b60b9d6291f15e22bd3fe70dbca"
+source = "git+https://github.com/C0D3-M4513R/egui_tracing.git?rev=2562729fa1de46d288aea2373aaac856737f10e9#2562729fa1de46d288aea2373aaac856737f10e9"
 dependencies = [
  "chrono",
  "egui",
+ "egui_extras",
  "globset",
  "serde",
  "tracing",
@@ -1019,6 +1020,7 @@ checksum = "3f0dcc0a0771e7500e94cd1cb797bd13c9f23b9409bdc3c824e2cbc562b7fa01"
 dependencies = [
  "ab_glyph",
  "ahash",
+ "backtrace",
  "bytemuck",
  "ecolor",
  "emath",
