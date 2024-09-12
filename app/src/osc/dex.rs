@@ -13,7 +13,8 @@ use unicode_bom::Bom;
 use super::OscSender;
 use super::OscCreateData;
 
-const DEX_KEY_WAIT_SEC:u64 = 10;
+const DEX_KEY_WAIT_MS:u64 = 1_500;
+const DEX_KEY_WAIT_DESC:&'static str = "1.5 seconds";
 
 #[derive(Clone)]
 pub(super) struct DexOscHandler {
@@ -59,6 +60,7 @@ impl osc_handler::MessageHandler for DexOscHandler
                 }
             }
             if let Some(id) = id {
+                log::info!("Got Avatar Change to {id}");
                 let clone = self.clone();
                 return futures::future::Either::Right(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))))
             }else{
@@ -219,29 +221,29 @@ impl DexOscHandler {
                         let _ = v.await;
                     };
                 }
-                log::info!("Avatar Change Detected to Avatar id '{}'. Key was detected, has been decoded and the Avatar has been Unlocked.", id);
+                log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
                 params.shrink_to_fit();
                 let params_clone = self.params.clone();
                 let jh = tokio::task::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(DEX_KEY_WAIT_SEC)).await;
+                    tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
                     let params = params_clone.lock();
                     let params = &*params;
                     match params {
                         None => {
                             log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
-                            log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_SEC} seconds.")
+                            log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
                         }
                         Some((_, params)) => {
                             if params.is_empty() {
-                                log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_SEC} seconds.")
+                                log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
                             } else {
                                 #[cfg(all(debug_assertions, feature="debug_log"))]
                                 {
-                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_SEC} seconds. There are {} avatar keys, that were not applied. {params:?}", params.len());
+                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied. {params:?}", params.len());
                                 }
                                 #[cfg(not(all(debug_assertions, feature="debug_log")))]
                                 {
-                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_SEC} seconds. There are {} avatar keys, that were not applied.", params.len());
+                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied.", params.len());
                                 }
                             }
                         }
