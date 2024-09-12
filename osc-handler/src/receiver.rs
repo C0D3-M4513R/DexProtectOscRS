@@ -84,6 +84,9 @@ impl<
                         buf = match out {
                             Err(e) => {
                                 log::error!("Error receiving udp packet. Skipping Packet: {}",e);
+                                if !buf.is_empty() {
+                                    handler.raw_handler.handle(buf.as_slice()).await;
+                                }
                                 Vec::with_capacity(DEFAULT_ALLOC)
                             }
                             Ok(_) => {
@@ -98,6 +101,7 @@ impl<
                                     Err(rosc::OscError::BadPacket(reason)) => {
                                         log::trace!("OSC packet not decodable yet? Reason: {reason}");
                                         if buf.len() >= max_message_size {
+                                            handler.raw_handler.handle(buf.as_slice()).await;
                                             Vec::with_capacity(DEFAULT_ALLOC)
                                         } else{
                                             continue;
@@ -106,6 +110,7 @@ impl<
                                     Err(rosc::OscError::ReadError(nom::error::ErrorKind::Eof)) => {
                                         log::trace!("Got EOF Read error when trying to deserialize packet. Waiting for more data");
                                         if buf.len() >= max_message_size {
+                                            handler.raw_handler.handle(buf.as_slice()).await;
                                             Vec::with_capacity(DEFAULT_ALLOC)
                                         } else{
                                             continue;
@@ -113,6 +118,7 @@ impl<
                                     },
                                     Err(e) => {
                                         log::error!("Error handling raw packet. Clearing internal receive buffer and skipping packet: {e}");
+                                        handler.raw_handler.handle(buf.as_slice()).await;
                                         Vec::with_capacity(max_message_size)
                                     }
                                 }

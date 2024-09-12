@@ -62,9 +62,9 @@ pub(crate) struct MessageDestructuring<H, P, R>
         R: RawPacketHandler,
 {
     bundle_buf: Buf,
-    message_handler: H,
-    packet_handler: P,
-    raw_handler: R,
+    pub(crate) message_handler: H,
+    pub(crate) packet_handler: P,
+    pub(crate) raw_handler: R,
 }
 
 impl<H, P, R> MessageDestructuring<H, P, R>
