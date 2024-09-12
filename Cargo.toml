@@ -12,4 +12,4 @@ strip = true
 lto = true
 
 [patch.crates-io]
-egui_tracing = { git = "https://github.com/C0D3-M4513R/egui_tracing.git", rev = "f39135ec7fdf27f59f2d5dcc4c702ba1e7635500"}
+egui_tracing = { git = "https://github.com/C0D3-M4513R/egui_tracing.git", rev = "711bede2ae75d829e87ef8967c1684a590a5a0d1"}

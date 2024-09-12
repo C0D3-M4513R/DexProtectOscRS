@@ -930,7 +930,7 @@ dependencies = [
 [[package]]
 name = "egui_tracing"
 version = "0.2.2"
-source = "git+https://github.com/C0D3-M4513R/egui_tracing.git?rev=f39135ec7fdf27f59f2d5dcc4c702ba1e7635500#f39135ec7fdf27f59f2d5dcc4c702ba1e7635500"
+source = "git+https://github.com/C0D3-M4513R/egui_tracing.git?rev=711bede2ae75d829e87ef8967c1684a590a5a0d1#711bede2ae75d829e87ef8967c1684a590a5a0d1"
 dependencies = [
  "chrono",
  "egui",
