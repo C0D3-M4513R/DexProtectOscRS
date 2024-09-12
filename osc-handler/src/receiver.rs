@@ -90,15 +90,21 @@ impl<
                                 Vec::with_capacity(DEFAULT_ALLOC)
                             }
                             Ok(_) => {
-                                match handler.handle_raw_packet(buf.as_slice()) {
-                                    Ok((rest, jsr, jsp, res)) => {
-                                        let ja = res.to_messages_vec().into_iter().collect::<futures::future::JoinAll<_>>();
-                                        futures::future::join3(jsr, jsp, ja).await;
+                                let (rest, jsr, fut, e) = handler.handle_raw_packets(buf.as_slice());
+                                futures::future::join(
+                                    fut.into_iter().map(|(jp, res)|{
+                                        futures::future::join(jp, res.to_messages_vec().into_iter().collect::<futures::future::JoinAll<_>>())
+                                    }).collect::<futures::future::JoinAll<_>>(),
+                                    jsr,
+                                ).await;
+
+                                match e {
+                                    None => {
                                         let mut new_buf = Vec::with_capacity(DEFAULT_ALLOC);
                                         new_buf.extend_from_slice(rest);
                                         new_buf
                                     },
-                                    Err(rosc::OscError::BadPacket(reason)) => {
+                                    Some(rosc::OscError::BadPacket(reason)) => {
                                         log::trace!("OSC packet not decodable yet? Reason: {reason}");
                                         if buf.len() >= max_message_size {
                                             handler.raw_handler.handle(buf.as_slice()).await;
@@ -107,7 +113,7 @@ impl<
                                             continue;
                                         }
                                     },
-                                    Err(rosc::OscError::ReadError(nom::error::ErrorKind::Eof)) => {
+                                    Some(rosc::OscError::ReadError(nom::error::ErrorKind::Eof)) => {
                                         log::trace!("Got EOF Read error when trying to deserialize packet. Waiting for more data");
                                         if buf.len() >= max_message_size {
                                             handler.raw_handler.handle(buf.as_slice()).await;
@@ -116,7 +122,7 @@ impl<
                                             continue;
                                         }
                                     },
-                                    Err(e) => {
+                                    Some(e) => {
                                         log::error!("Error handling raw packet. Clearing internal receive buffer and skipping packet: {e}");
                                         handler.raw_handler.handle(buf.as_slice()).await;
                                         Vec::with_capacity(max_message_size)
