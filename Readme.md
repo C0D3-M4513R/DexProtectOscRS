@@ -36,3 +36,16 @@ If that happens, just scroll up, so you are not on the very bottom anymore and t
 
 # Notes
 - The Application doesn't handle one Udp Packet containting multiple OSC Packets well.
+
+# VRChat on Linux
+On Linux VRChat is started with Proton. For me (under NixOs) starting VRChat under Proton and then starting this app under Linux does not work.
+To fix that, you have 2 Options:
+- Start this app under Proton.
+  1. There is an "Open Logs Folder" (the name of that button might change) Button in VRChat's Settings.
+  2. From there you can navigate to where you saved this app and start it via double-clicking.
+- Change the Launch Options under Steam and start the App under Linux
+  1. Go to Steam, right-click on VRChat and click on Properties
+  2. Get your Local Ip Address (in this example `192.168.1.3`)
+  3. Paste this into the Launch Options (making sure to replace `192.168.1.3` with your actual Local Ip Address): `%command%  --osc=9000:192.168.1.3:9001` (if you have something else in there, you need to combine the options)
+  4. Start this App under Linux
+  5. Enter your Local Ip Address in the Ip field under the "Generic Osc Controls" Heading.
