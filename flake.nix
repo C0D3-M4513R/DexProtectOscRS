@@ -1,9 +1,8 @@
 {
   inputs = {
-    naersk.url = "github:nmattia/naersk/master";
     # This must be the stable nixpkgs if you're running the app on a
     # stable NixOS install.  Mixing EGL library versions doesn't work.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
     utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-compat = {
@@ -12,15 +11,11 @@
     };
   };
 
-  outputs = { self, nixpkgs, utils, naersk, rust-overlay, ... }:
+  outputs = { self, nixpkgs, utils, rust-overlay, ... }:
     utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {inherit system overlays;};
-        naersk-lib = pkgs.callPackage naersk {
-            cargo = pkgs.rust-bin.stable.latest.default;
-            rustc = pkgs.rust-bin.stable.latest.default;
-        };
         manifest = (builtins.fromTOML (builtins.readFile ./app/Cargo.toml)).package;
         commonBuildInputs = with pkgs; [
           gsettings-desktop-schemas #https://nixos.org/manual/nixpkgs/unstable/#ssec-gnome-common-issues
@@ -39,22 +34,33 @@
           fontconfig
         ];
         runtimeDependencies = with pkgs; [
+        	wayland
           libGL
           libxkbcommon
         ];
       in
       {
-        defaultPackage = naersk-lib.buildPackage {
+        defaultPackage = pkgs.rustPlatform.buildRustPackage {
+          name = manifest.name;
+          pversion = manifest.version;
+
           src = pkgs.lib.cleanSource ./.;
+					cargoLock = {
+						lockFile = ./Cargo.lock;
+						outputHashes = {
+						 "egui_tracing-0.2.2" = "sha256-PXFZVRS3y13MdvU/3IZKpgLsdmb+3TbfhXiprsWtIuw=";
+						};
+					};
           doCheck = true;
-          pname = manifest.name;
+
           nativeBuildInputs = [
             pkgs.autoPatchelfHook
             pkgs.wrapGAppsHook
           ];
+
           runtimeDependencies = runtimeDependencies;
+
           buildInputs = with pkgs; [
-            pkgs.rust-bin.stable.latest.default
           ] ++ commonBuildInputs;
         };
 
