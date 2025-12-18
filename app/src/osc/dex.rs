@@ -274,6 +274,18 @@ enum DecryptError{
 //Sorry for those people wanting to build this themselves.
 //If I were to commit the Key and IV, it would defeat the entire purpose.
 //Consider this a crackme challenge, under the terms that you do not redistribute those keys.
+//
+//Here is a checksum, to see if you have the same file as me:
+//openssl dgst -sha3-512 app/src/osc/dex_key.rs
+// SHA3-512(app/src/osc/dex_key.rs)= 7c5bc2a6fbf44e13010c2e1f14e215266b4a27737eebab46512f695b174481a5c9ea7a224ead0009d4e0b12f12f4cf2e2b385c5da9434f324ab024fb74db7036
+//
+//And here is the template of the dex_key.rs file. Just fill in the missing ??.
+/*
+#[allow(dead_code)]
+const KEY: [u8; 32] = [0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??];
+#[allow(dead_code)]
+const IV: [u8;16] = [0x??u8, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??, 0x??];
+*/
 #[cfg(not(feature = "no_decryption_keys"))]
 include!("dex_key.rs");
 #[cfg(feature = "no_decryption_keys")]
