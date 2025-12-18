@@ -8,23 +8,25 @@ publish = false
 
 [dependencies]
 #OSC library
-rosc = "0.10"
+rosc = "0.11.4"
 nom = "7"
 #logging
 log = "0.4"
-#to identify non-processed bundles
-uuid = {version = "1", features = ["v4"]}
 #Sorted vec according to a timestamp.
 #This is used to sort to be applied bundles according to their timestamps.
 #This theoretically speeds up checking what bundles to apply, since it can now
 #find the bundles to apply in O(log n) instead of O(n). (binary search instead checking every bundle)
 time = "0.3"
 sorted-vec = "0.8"
-#Mutex for internal mutating access to a buffer of bundles to be applied
-parking_lot = "0.12"
 #We allow an async handler function.
 #Because async recursion is not possible without Boxing, it was opted
-tokio = "1"
+tokio =  { version = "1", features = [
+    "rt", #JoinSet
+    "net", #UDP Sockets
+    "io-util", #recv_buf for udp sockets
+    "time", #time
+    "macros", #select
+]}
 futures = "0.3.30"
 [features]
 debug_log = []

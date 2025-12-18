@@ -2,7 +2,6 @@ use std::convert::Infallible;
 use std::net::IpAddr;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::time::MissedTickBehavior;
 use crate::multple_handler::OscHandler;
 use super::{MessageDestructuring, MessageHandler, PacketHandler, RawPacketHandler};
 
@@ -67,14 +66,14 @@ impl<
         let mut handler = MessageDestructuring::new(message_handlers, packet_handlers, raw_packet_handlers);
         js.spawn(async move {
             let mut periodic = tokio::time::interval(Duration::from_secs(1));
-            periodic.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            periodic.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut buf = Vec::with_capacity(DEFAULT_ALLOC);
 
             loop {
                 tokio::select! {
                     biased;
                     _ = periodic.tick() => {
-                        for (_,r) in handler.check_osc_bundles(){
+                        for r in handler.check_osc_bundles(){
                             for f in r.to_messages_vec(){
                                 f.await;
                             }

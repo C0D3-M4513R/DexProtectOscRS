@@ -2,9 +2,12 @@
   inputs = {
     # This must be the stable nixpkgs if you're running the app on a
     # stable NixOS install.  Mixing EGL library versions doesn't work.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     utils.url = "github:numtide/flake-utils";
-    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay = {
+    	url = "github:oxalica/rust-overlay";
+    	inputs.nixpkgs.follows = "nixpkgs";
+    };
     flake-compat = {
       url = github:edolstra/flake-compat;
       flake = true;
@@ -48,14 +51,14 @@
 					cargoLock = {
 						lockFile = ./Cargo.lock;
 						outputHashes = {
-						 "egui_tracing-0.2.2" = "sha256-PXFZVRS3y13MdvU/3IZKpgLsdmb+3TbfhXiprsWtIuw=";
+						 "egui_tracing-0.2.6" = "sha256-30n161ux80D+HAxJJqjgPJt/s2W3yPBRXBd1JyiVwZI=";
 						};
 					};
           doCheck = true;
 
           nativeBuildInputs = [
             pkgs.autoPatchelfHook
-            pkgs.wrapGAppsHook
+            pkgs.wrapGAppsHook3
           ];
 
           runtimeDependencies = runtimeDependencies;

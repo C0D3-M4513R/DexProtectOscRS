@@ -15,7 +15,7 @@ use crate::osc::OscCreateData;
 pub struct App<'a>{
     logs_visible: bool,
     #[serde(skip)]
-    collector:egui_tracing::Logs,
+    collector:egui_tracing::EventCollector,
     auto_connect_launch: bool,
     ip:String,
     path:String,
@@ -44,7 +44,6 @@ impl<'a> Debug for App<'a>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("App");
         debug.field("logs_visible", &self.logs_visible)
-            .field("collector",&self.collector)
             .field("auto_connect_launch",&self.auto_connect_launch)
             .field("ip", &self.ip)
             .field("path", &self.path);
@@ -69,7 +68,7 @@ impl<'a> Default for App<'a>{
     fn default() -> Self {
         Self{
             logs_visible: false,
-            collector:egui_tracing::Logs::new(egui_tracing::EventCollector::new()),
+            collector:egui_tracing::EventCollector::new(),
             auto_connect_launch: true,
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
@@ -127,7 +126,7 @@ impl<'a> App<'a> {
 
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
-        slf.collector = egui_tracing::Logs::new(collector);
+        slf.collector = collector;
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();
         }
@@ -410,7 +409,7 @@ impl<'a> eframe::App for App<'a> {
                 if logs_visible {
                     strip.cell(|ui|{
                         ctx.request_repaint_after_secs(15.);
-                        ui.add(&mut self.collector);
+                        ui.add(egui_tracing::Logs::new(self.collector.clone()));
                     });
                 }
             });
