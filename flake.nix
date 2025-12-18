@@ -65,6 +65,22 @@
 
           buildInputs = with pkgs; [
           ] ++ commonBuildInputs;
+
+
+					meta = {
+						description = "Open-Source Implementation of the accompanying app for DexProtect";
+						#Nothing in this repo states, that this is the case, but you are free to redistribute compiled versions of this source code.
+						#But also note, that the not-included app/src/osc/dex_key.rs file is not to be distributed at all (and is therefore not included in the source-code)!
+						#The same goes for the actual IV and KEY contained within that file in ANY WAY SHAPE OR FORM.
+						#This restriction originates from the DexProtect Creator, which asked me (and likely in sentiment also others who discover this information) to abide by this.
+						#
+						#As a special case, you are allowed to reformat the contents of app/src/osc/dex_key.rs as you wish/need
+						#Note that you can redistribute versions of this app, which were compiled with app/src/osc/dex_key.rs present and without it present.
+						#Though without app/src/osc/dex_key.rs present you might want to activate the no_decryption_keys feature to fix the compilation errors.
+						license = pkgs.lib.licenses.unfreeRedistributable;
+						platforms = pkgs.lib.platforms.linux ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
+						mainProgram = "dex_protect_osc_rs";
+					};
         };
 
         defaultApp = utils.lib.mkApp {
