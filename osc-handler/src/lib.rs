@@ -19,7 +19,7 @@ pub enum Results<F,T>
     ///A bundle that has been applied.
     OscBundle(Vec<Results<F,T>>),
     ///A bundle that cannot be applied yet, due to a timetag in the future.
-    NotYetApplied(uuid::Uuid)
+    NotYetApplied(time::OffsetDateTime)
 }
 
 impl<F,T> Results<F,T>
@@ -146,7 +146,7 @@ where
     /// All processing will happen asynchronously.
     /// The returned [Results] will contain Futures that MUST be awaited, if any sort of processing is desired.
     #[must_use]
-    pub(crate) fn check_osc_bundles(&mut self) -> Vec<(uuid::Uuid,Results<H::Fut,H::Output>)>{
+    pub(crate) fn check_osc_bundles(&mut self) -> Vec<Results<H::Fut,H::Output>>{
         let now = time::OffsetDateTime::now_utc();
         let to_apply = {
             let partition_point = self.bundle_buf.partition_point(|x| x.0.key > now);
@@ -159,7 +159,7 @@ where
                 .collect::<Vec<_>>()
         };
         to_apply.into_iter()
-            .map(|x| (x.uuid, self.apply_bundle(&x.value)))
+            .map(|x| self.apply_bundle(&x.value))
             .collect()
     }
 
@@ -185,9 +185,8 @@ where
         if time::OffsetDateTime::now_utc() > date_time {
             self.apply_bundle(bundle)
         }else{
-            let uuid = uuid::Uuid::new_v4();
-            self.bundle_buf.push(std::cmp::Reverse(key_value::KeyValue::new(date_time, bundle.clone(), uuid)));
-            Results::NotYetApplied(uuid)
+            self.bundle_buf.push(std::cmp::Reverse(key_value::KeyValue::new(date_time, bundle.clone())));
+            Results::NotYetApplied(date_time)
         }
     }
 

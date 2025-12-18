@@ -3,13 +3,12 @@ use std::cmp::Ordering;
 pub struct KeyValue<K,V> {
     pub key: K,
     pub value: V,
-    pub uuid: uuid::Uuid,
 }
 
 impl<K, V> KeyValue<K, V> {
     #[inline]
-    pub(crate) fn new(key: K, value: V, uuid: uuid::Uuid) -> KeyValue<K, V> {
-        KeyValue { key, value, uuid}
+    pub(crate) fn new(key: K, value: V) -> KeyValue<K, V> {
+        KeyValue { key, value}
     }
 }
 

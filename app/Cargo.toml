@@ -8,28 +8,23 @@ publish = false
 
 [dependencies]
 #gui stuff
-rfd = {version = "0.14", optional = true}
-egui_tracing = "0.2.2"
-egui_extras = "0.28"
-egui = "0.28"
-eframe = { version = "0.28", default-features = false, features = [
-    #    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-] }
+rfd = {version = "0.16.0", optional = true}
+egui_tracing = "0.2.6"
+egui_extras = "0.33.3"
+egui = "0.33.3"
+eframe = { version = "0.33.3", features = [ "persistence"] }
 #Logging
 log = "0.4"
 tracing-subscriber = "0.3"
 tracing-core = "0.1"
-thiserror = "1"
+thiserror = "2.0.17"
 #Persistant data storage
 serde_derive = "1"
 serde = "1"
 #async driver
 tokio = { version = "1", features = ["full"] }
 #osc
-rosc = "0.10"
+rosc = "0.11.4"
 osc-handler = {path = "../osc-handler", version = "0.1.0"}
 unicode-bom = "2"
 futures = "0.3"
@@ -39,7 +34,7 @@ aes = "0.8.3"
 #block-padding = "0.3.3"
 
 [features]
-default = ["file_dialog", "egui/deadlock_detection"]
+default = ["file_dialog"]
 file_dialog = ["dep:rfd"]
 no_decryption_keys = []
 oscquery = []
