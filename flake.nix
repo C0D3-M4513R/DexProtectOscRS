@@ -41,31 +41,39 @@
           libGL
           libxkbcommon
         ];
-      in
-      {
-        defaultPackage = pkgs.rustPlatform.buildRustPackage {
-          name = manifest.name;
-          pversion = manifest.version;
+        app = pkgs.rustPlatform.buildRustPackage {
+					name = manifest.name;
+					pversion = manifest.version;
 
-          src = pkgs.lib.cleanSource ./.;
+					src = pkgs.lib.cleanSource ./.;
 					cargoLock = {
 						lockFile = ./Cargo.lock;
-						outputHashes = {
-						 "egui_tracing-0.2.6" = "sha256-30n161ux80D+HAxJJqjgPJt/s2W3yPBRXBd1JyiVwZI=";
-						};
 					};
-          doCheck = true;
+					doCheck = true;
 
-          nativeBuildInputs = [
-            pkgs.autoPatchelfHook
-            pkgs.wrapGAppsHook3
-          ];
+					nativeBuildInputs = [
+						pkgs.autoPatchelfHook
+						pkgs.wrapGAppsHook3
+						pkgs.rust-bin.stable.latest.minimal
+					];
 
-          runtimeDependencies = runtimeDependencies;
+					runtimeDependencies = runtimeDependencies;
 
-          buildInputs = with pkgs; [
-          ] ++ commonBuildInputs;
+					buildInputs = with pkgs; [
+					] ++ commonBuildInputs;
 
+					desktopItems =
+					let
+					  item = pkgs.makeDesktopItem {
+							name = manifest.name;
+							desktopName = "DexProtectOscRs";
+							exec = manifest.name;
+							categories = [
+								"Game"
+								"Utility"
+							];
+						};
+					in [ item ];
 
 					meta = {
 						description = "Open-Source Implementation of the accompanying app for DexProtect";
@@ -77,15 +85,29 @@
 						#As a special case, you are allowed to reformat the contents of app/src/osc/dex_key.rs as you wish/need
 						#Note that you can redistribute versions of this app, which were compiled with app/src/osc/dex_key.rs present and without it present.
 						#Though without app/src/osc/dex_key.rs present you might want to activate the no_decryption_keys feature to fix the compilation errors.
-						license = pkgs.lib.licenses.unfreeRedistributable;
+						#
+						#If you wish to use this with the key present, I currently use it in my system flake like this: (where dexprotect is a flake input to this repo and included via special args)
+						#      (dexprotext.overrideAttrs (finalAttrs: previousAttrs: {
+            #        postPatch = ''
+            #          echo '${dex_key}' > 'app/src/osc/dex_key.rs'
+            #        '';
+            #      }))
+#						license = pkgs.lib.licenses.unfreeRedistributable; #Technically this is unfree redistributable, but I don't wanna build my nixos impure every-time.
 						platforms = pkgs.lib.platforms.linux ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
-						mainProgram = "dex_protect_osc_rs";
+						mainProgram = manifest.name;
 					};
-        };
+				};
+      in
+      {
+				packages = {
+					default = app;
+				};
 
-        defaultApp = utils.lib.mkApp {
-          drv = self.defaultPackage."${system}";
-        };
+				apps = rec{
+					default = utils.lib.mkApp {
+						drv = app;
+					};
+				};
 
         devShell = with pkgs; mkShell {
           buildInputs = [

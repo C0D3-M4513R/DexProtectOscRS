@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::IndexMut;
 use std::path::PathBuf;
 use std::str::FromStr;
-use egui::Widget;
+use egui::{Ui, Widget};
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
 use crate::get_runtime;
@@ -364,9 +364,9 @@ impl<'a> App<'a> {
 }
 
 impl<'a> eframe::App for App<'a> {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.check_osc_thread();
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             //create immutable copies
             let dex_protect_enabled = self.dex_protect_enabled;
             let osc_multiplexer_enabled = self.osc_multiplexer_enabled;
@@ -408,7 +408,7 @@ impl<'a> eframe::App for App<'a> {
                 });
                 if logs_visible {
                     strip.cell(|ui|{
-                        ctx.request_repaint_after_secs(15.);
+                        ui.request_repaint_after_secs(15.);
                         ui.add(egui_tracing::Logs::new(self.collector.clone()));
                     });
                 }
@@ -417,12 +417,12 @@ impl<'a> eframe::App for App<'a> {
         });
 
         if let Some(mut popup) = self.osc_multiplexer_port_popup.take() {
-            if popup(self, ctx, frame) {
+            if popup(self, ui, frame) {
                 self.osc_multiplexer_port_popup = Some(popup);
             }
         }
         self.popups = core::mem::take(&mut self.popups).into_iter().filter_map(|mut popup|{
-            if popup(self, ctx, frame) {
+            if popup(self, ui, frame) {
                 Some(popup)
             }else{
                 None
@@ -434,7 +434,7 @@ impl<'a> eframe::App for App<'a> {
         eframe::set_value(storage,eframe::APP_KEY, self)
     }
 }
-type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ egui::Context, &'_ mut eframe::Frame) -> bool + 'a;
+type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a;
 
 fn get_id() -> u64 {
     static ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -456,13 +456,13 @@ fn popup_creator_collapsible<'a>(
     let title = title.into();
     let id = get_id();
     let mut open = true;
-    Box::new(move |app:&'_ mut App,ctx: &'_ egui::Context, _: &'_ mut eframe::Frame| {
+    Box::new(move |app:&'_ mut App, ui: &'_ mut egui::Ui, _: &'_ mut eframe::Frame| {
         egui::Window::new(title.clone())
             .resizable(false)
             .collapsible(collapsible)
             .open(&mut open)
             .id(egui::Id::new(id))
-            .show(ctx, |ui|add_content(app,ui));
+            .show(ui.ctx(), |ui|add_content(app,ui));
         open
     })
 }

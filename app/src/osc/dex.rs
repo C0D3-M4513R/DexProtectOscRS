@@ -5,8 +5,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use aes::cipher::KeyIvInit;
-use cbc::cipher::BlockDecryptMut;
+use aes::cipher::{BlockModeDecrypt, KeyIvInit};
 use egui::mutex::Mutex;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use unicode_bom::Bom;
@@ -268,7 +267,7 @@ enum DecryptError{
     #[error("DecryptError:InvalidLength({0})")]
     InvalidLength(#[from] aes::cipher::InvalidLength),
     #[error("DecryptError:UnpadError({0})")]
-    UnpadError(#[from] aes::cipher::block_padding::UnpadError),
+    UnpadError(#[from] aes::cipher::block_padding::Error),
 }
 
 //Sorry for those people wanting to build this themselves.
@@ -294,13 +293,13 @@ const KEY: [u8; 32] = [0; 32];
 const IV: [u8;16] = [0; 16];
 
 
-fn decrpyt(file: Vec<u8>) -> (Vec<u8>, Option<DecryptError>) {
+fn decrpyt(mut file: Vec<u8>) -> (Vec<u8>, Option<DecryptError>) {
     match cbc::Decryptor::<aes::Aes256>::new_from_slices(
             &KEY,
             &IV
         ).map_err(DecryptError::from)
-        .and_then(|aes|aes.decrypt_padded_vec_mut::<cbc::cipher::block_padding::Pkcs7>(file.as_slice()).map_err(DecryptError::from)) {
-        Ok(v) => (v, None),
+        .and_then(|aes|aes.decrypt_padded::<cbc::cipher::block_padding::Pkcs7>(file.as_mut_slice()).map_err(DecryptError::from)) {
+        Ok(_) => (file, None),
         Err(err) => (file, Some(err)),
     }
 }
