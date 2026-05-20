@@ -119,6 +119,7 @@
             #rustc
             #rustfmt
             tokei
+            heaptrack
             pkgsCross.mingwW64.stdenv.cc
             pkgsCross.mingwW64.windows.pthreads
           ] ++ commonBuildInputs;
