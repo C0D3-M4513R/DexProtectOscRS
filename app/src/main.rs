@@ -24,7 +24,10 @@ fn get_runtime() -> &'static Runtime {
 fn main() {
     let collector = egui_tracing::EventCollector::new();
     tracing_subscriber::registry()
-        .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .with(tracing_subscriber::filter::EnvFilter::builder()
+            .with_default_directive(tracing_core::LevelFilter::INFO.into())
+            .from_env_lossy()
+        )
         .with(tracing_subscriber::fmt::layer().pretty())
         .with(tracing_subscriber::filter::filter_fn(|event|{
             if let Some(module) = event.module_path(){
