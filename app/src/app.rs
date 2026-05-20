@@ -7,7 +7,6 @@ use std::str::FromStr;
 use egui::{Ui, Widget};
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
-use crate::get_runtime;
 use crate::osc::OscCreateData;
 
 #[derive(Deserialize, Serialize)]
@@ -187,7 +186,7 @@ impl<'a> App<'a> {
     fn check_osc_thread(&mut self){
         if let Some(osc_thread) = self.osc_thread.take() {
             if osc_thread.is_finished(){
-                match get_runtime().block_on(osc_thread){
+                match tokio::runtime::Handle::current().block_on(osc_thread){
                     Ok(Ok(())) => {
                         log::error!("OSC Thread finished unexpectedly");
                         let time = Instant::now();
@@ -242,7 +241,7 @@ impl<'a> App<'a> {
                     resp = resp.on_hover_text("A Dialogue to Pick a Folder is currently open. Please use that one.");
                 }
                 if resp.clicked(){
-                    self.file_picker_thread = Some(get_runtime().spawn(async{
+                    self.file_picker_thread = Some(tokio::task::spawn(async{
                         rfd::AsyncFileDialog::new()
                             .pick_folder()
                             .await
@@ -251,7 +250,7 @@ impl<'a> App<'a> {
                 }
                 if let Some(file_picker_thread) = self.file_picker_thread.take(){
                     if file_picker_thread.is_finished(){
-                        match get_runtime().block_on(file_picker_thread) {
+                        match tokio::runtime::Handle::current().block_on(file_picker_thread) {
                             Ok(Some(path)) => {
                                 self.path = path.to_string_lossy().to_string();
                                 log::info!("Picked Folder: '{}' (potential replacements due to non UTF-8 characters) ", self.path);
