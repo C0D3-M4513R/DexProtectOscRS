@@ -167,7 +167,7 @@ impl DexOscHandler {
                     let float = split[i];
                     if let Some(index) = float.find("."){
                         #[cfg(all(debug_assertions, feature="debug_log"))]
-                        log::trace!("Decoding float: {}", float);
+                        log::trace!("Decoding float: {string}:{float}");
                         let (whole_str, part_str) = float.split_at(index);
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
@@ -187,7 +187,7 @@ impl DexOscHandler {
                         type_ = OscType::Float(amount);
                     }else {
                         #[cfg(all(debug_assertions, feature="debug_log"))]
-                        log::trace!("Decoding int: {}", float);
+                        log::trace!("Decoding int: {string}:{float}");
                         let whole = match decode_number(float, &id){
                             Some(v) => v,
                             None => return
@@ -202,12 +202,12 @@ impl DexOscHandler {
                     params.insert(string.clone(), type_.clone());
                     if self.dex_use_bundles {
                         key.push(OscPacket::Message(OscMessage{
-                            addr: format!("/avatar/parameters/{}", split[i+1]),
+                            addr: string.clone(),
                             args: vec![type_],
                         }));
                     }else {
                         if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
-                            addr: format!("/avatar/parameters/{}", split[i+1]),
+                            addr: string.clone(),
                             args: vec![type_],
                         })) {
                             let _ = v.await;
@@ -231,25 +231,31 @@ impl DexOscHandler {
                 params.shrink_to_fit();
                 let params_clone = self.params.clone();
                 let jh = tokio::task::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
-                    let params = params_clone.lock();
-                    let params = &*params;
-                    match params {
-                        None => {
-                            log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
-                            log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
-                        }
-                        Some((_, params)) => {
-                            if params.is_empty() {
-                                log::trace!("All Avatar Keys have been supplied after {DEX_KEY_WAIT_DESC}.")
-                            } else {
-                                #[cfg(all(debug_assertions, feature="debug_log"))]
-                                {
-                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied. {params:?}", params.len());
-                                }
-                                #[cfg(not(all(debug_assertions, feature="debug_log")))]
-                                {
-                                    log::error!("The Avatar Key has not been fully applied after {DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied.", params.len());
+                    for i in 0..4 {
+                        tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
+                        let params = params_clone.lock();
+                        let params = &*params;
+                        match params {
+                            None => {
+                                log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
+                                log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.")
+                            }
+                            Some((_, params)) => {
+                                if params.is_empty() {
+                                    log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.")
+                                } else {
+                                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                                    {
+                                        let len = params.len();
+                                        let params = params.iter()
+                                            .map(|(k, v)|format!("\r\n\t{k}\t{v:?}"))
+                                            .collect::<String>();
+                                        log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {len} avatar keys, that were not applied. {params}");
+                                    }
+                                    #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                    {
+                                        log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied.", params.len());
+                                    }
                                 }
                             }
                         }

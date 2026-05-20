@@ -131,14 +131,33 @@ pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::R
                     .flat_map(|v|v.into_iter())
                     .flat_map(|v|v.into_iter())
                     .collect::<futures::stream::FuturesUnordered<_>>());
+                let non_empty_send_message = !send_message.is_empty();
                 let fut = futures::future::join(
                     poll_stream_end(
                         send_message.into_iter()
-                            .map(|v|v.map(|_|()))
+                            .map(|v|v.map(|(v, buf)|match v {
+                                Ok(v) => {
+                                    if v != buf.len() {
+                                        log::warn!("Sent less bytes than were queued ({v} sent, {} queued)", buf.len());
+                                    } else {
+                                        #[cfg(all(debug_assertions, feature="debug_log"))]
+                                        log::trace!("Sent {v} bytes of {} queued bytes.", buf.len());
+                                    }
+                                },
+                                Err(err) => {
+                                    log::warn!("Failed to send message: {err}");
+                                }
+                            }))
                             .collect::<futures::stream::FuturesUnordered<_>>()
                     ),
                     fut
-                ).map(|_|());
+                ).map(move |_|{
+                    if non_empty_send_message {
+                        log::info!("Future Polled to completion");
+                    }
+
+                    ()
+                });
 
                 (parse_err.into_iter(), fut)
             }
