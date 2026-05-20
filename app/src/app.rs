@@ -77,7 +77,7 @@ impl<'a> Default for App<'a>{
             dex_use_bundles: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
-            max_message_size: osc_handler::OSC_RECV_BUFFER_SIZE,
+            max_message_size: crate::osc::OSC_RECV_BUFFER_SIZE,
             osc_multiplexer_enabled: false,
             osc_multiplexer_parse_packets: false,
             dex_protect_enabled: true,
@@ -328,7 +328,7 @@ impl<'a> App<'a> {
                 .range(1..=usize::try_from(isize::MAX).unwrap_or(usize::MAX))
                 .ui(ui);
             if ui.button("Reset to Default").clicked() {
-                self.max_message_size = osc_handler::OSC_RECV_BUFFER_SIZE;
+                self.max_message_size = crate::osc::OSC_RECV_BUFFER_SIZE;
             }
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");

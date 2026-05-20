@@ -20,7 +20,7 @@ pub(super) struct DexOscHandler {
     path: Arc<std::path::Path>,
     dex_use_bundles: bool,
     osc: Arc<OscSender>,
-    params: Arc<Mutex<Option<(tokio::task::AbortHandle, HashMap<String, f32>)>>>,
+    params: Arc<Mutex<Option<(tokio::task::AbortHandle, HashMap<String, OscType>)>>>,
 }
 
 impl DexOscHandler {
@@ -34,94 +34,94 @@ impl DexOscHandler {
     }
 }
 
-impl osc_handler::MessageHandler for DexOscHandler
+impl osc_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage]> for DexOscHandler
 {
-    type Fut = futures::future::Either<core::future::Ready<Self::Output>,Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
-    type Output = ();
-
-    fn handle(&mut self, message: Arc<OscMessage>) -> Self::Fut {
-        if message.addr.eq_ignore_ascii_case("/avatar/change") {
-            let mut id = None;
-            for i in &message.args{
-                match i {
-                    OscType::String(s) => {
-                        if id.is_none(){
-                            id = Some(s);
-                        }else{
+    type Output = Vec<Pin<Box<dyn Future<Output = ()> + Send>>>;
+    fn handle(&mut self, message: &'_ [&'_ rosc::OscMessage]) -> Self::Output {
+        message.into_iter().filter_map(|message|{
+            if message.addr.eq_ignore_ascii_case("/avatar/change") {
+                let mut id = None;
+                for i in &message.args{
+                    match i {
+                        OscType::String(s) => {
+                            if id.is_none(){
+                                id = Some(s);
+                            }else{
+                                unrecognized_avatar_change(&message.args);
+                                return None;
+                            }
+                        }
+                        _ => {
                             unrecognized_avatar_change(&message.args);
-                            return futures::future::Either::Left(core::future::ready(()));
+                            return None;
                         }
                     }
-                    _ => {
-                        unrecognized_avatar_change(&message.args);
-                        return futures::future::Either::Left(core::future::ready(()));
-                    }
                 }
-            }
-            if let Some(id) = id {
-                log::info!("Got Avatar Change to {id}");
-                let clone = self.clone();
-                return futures::future::Either::Right(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))))
-            }else{
-                log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.")
-            }
-        } else if message.addr.starts_with("/avatar/parameters/") {
-            let mut replace = false;
+                if let Some(id) = id {
+                    log::info!("Got Avatar Change to {id}");
+                    let clone = self.clone();
+                    return Some(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))) as Pin<Box<dyn Future<Output = ()> + Send>>);
+                }else{
+                    log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.");
+                }
+            } else if message.addr.starts_with("/avatar/parameters/") {
+                let mut replace = false;
 
-            {
-                let mut params = self.params.lock();
-                match params.as_mut() {
-                    Some((abort, params)) => {
-                        match params.remove(&message.addr) {
-                            None => {
-                                #[cfg(all(debug_assertions, feature="debug_log"))]
-                                {
-                                    log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
+                {
+                    let mut params = self.params.lock();
+                    match params.as_mut() {
+                        Some((abort, params)) => {
+                            match params.remove(&message.addr) {
+                                None => {
+                                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                                    {
+                                        log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
+                                    }
                                 }
-                            }
-                            Some(val) => {
-                                if message.args.len() > 1 {
-                                    log::error!("An Avatar Key parameter at the path '{}' was set to multiple values. Currently this is unexpected. Values: {:?}", message.addr, message.args);
-                                    replace = true;
-                                }
-                                match message.args.get(0) {
-                                    None => {
-                                        log::error!("An Avatar Key parameter at the path '{}' was set to no values. Currently this is unexpected.", message.addr);
+                                Some(val) => {
+                                    if message.args.len() > 1 {
+                                        log::error!("An Avatar Key parameter at the path '{}' was set to multiple values. Currently this is unexpected. Values: {:?}", message.addr, message.args);
                                         replace = true;
                                     }
-                                    Some(OscType::Float(f)) => {
-                                        if *f != val {
-                                            log::error!("An Avatar Key parameter at the path '{}' was set to a different value than the key. ", message.addr);
+                                    match message.args.get(0) {
+                                        None => {
+                                            log::error!("An Avatar Key parameter at the path '{}' was set to no values. Currently this is unexpected.", message.addr);
                                             replace = true;
                                         }
-                                    }
-                                    Some(v) => {
-                                        log::error!("An Avatar Key parameter at the path '{}' was set to a non-float value. Currently this is unexpected. Value: {v:?}", message.addr);
-                                        replace = true;
+                                        Some(v) => {
+                                            if *v != val {
+                                                #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                                log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key", message.addr);
+                                                #[cfg(all(debug_assertions, feature="debug_log"))]
+                                                log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key. (was {v:?}, expected {val:?})", message.addr);
+                                                replace = true;
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if params.is_empty() {
-                            log::info!("Key has been applied successfully.");
-                            abort.abort();
-                            replace = true;
+                            if params.is_empty() {
+                                log::info!("Key has been applied successfully.");
+                                abort.abort();
+                                replace = true;
+                            }
                         }
+                        None => {}
                     }
-                    None => {}
                 }
+
+                //create a different arc here, so that any cloned arcs are still valid.
+                if replace {
+                    self.params = Arc::new(Mutex::new(None));
+                }
+            }else{
+                #[cfg(all(debug_assertions, feature="debug_log"))]
+                log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
             }
 
-            //create a different arc here, so that any cloned arcs are still valid.
-            if replace {
-                self.params = Arc::new(Mutex::new(None));
-            }
-        }else{
-            #[cfg(all(debug_assertions, feature="debug_log"))]
-            log::trace!("Uninteresting OSC Message for DexProtect: {:?}", message)
-        }
-        futures::future::Either::Left(core::future::ready(()))
+            None
+        }).collect()
     }
 }
 
@@ -162,46 +162,53 @@ impl DexOscHandler {
                 let mut i = 0;
                 let mut params = HashMap::with_capacity(len);
                 while i < len {
+                    let string = format!("/avatar/parameters/{}", split[i+1]);
+                    let type_;
                     let float = split[i];
-                    #[cfg(all(debug_assertions, feature="debug_log"))]
-                    log::trace!("Decoding float: {}", float);
-                    let whole:u32;
-                    let part:u32;
-                    let part_digits:u32;
                     if let Some(index) = float.find("."){
+                        #[cfg(all(debug_assertions, feature="debug_log"))]
+                        log::trace!("Decoding float: {}", float);
                         let (whole_str, part_str) = float.split_at(index);
                         let mut part_string = part_str.to_string();
                         part_string.remove(0);
                         #[cfg(all(debug_assertions, feature="debug_log"))]
                         log::trace!("Decoding float: {}, whole: {}, part:{}", float,whole_str, part_string);
-                        whole = match decode_number(whole_str, &id){
+                        let whole = match decode_number(whole_str, &id){
                             Some(v) => v,
                             None => return
                         };
-                        part = match decode_number(part_string.as_str(), &id){
+                        let part = match decode_number(part_string.as_str(), &id){
                             Some(v) => v,
                             None => return
                         };
-                        part_digits = part_string.len() as u32;
+                        let part_digits = part_string.len() as u32;
+
+                        let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
+                        type_ = OscType::Float(amount);
                     }else {
-                        whole = match decode_number(float, &id){
+                        #[cfg(all(debug_assertions, feature="debug_log"))]
+                        log::trace!("Decoding int: {}", float);
+                        let whole = match decode_number(float, &id){
                             Some(v) => v,
                             None => return
                         };
-                        part = 0;
-                        part_digits = 0;
+                        let part = 0;
+                        let part_digits = 0;
+                        let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
+
+                        // type_ = OscType::Int(whole.cast_signed());
+                        type_ = OscType::Float(amount);
                     }
-                    let amount = whole as f32 + part as f32/(10.0f32.powf(part_digits as f32));
-                    params.insert(format!("/avatar/parameters/{}", split[i+1]), amount);
+                    params.insert(string.clone(), type_.clone());
                     if self.dex_use_bundles {
                         key.push(OscPacket::Message(OscMessage{
                             addr: format!("/avatar/parameters/{}", split[i+1]),
-                            args: vec![OscType::Float(amount)],
+                            args: vec![type_],
                         }));
                     }else {
                         if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
                             addr: format!("/avatar/parameters/{}", split[i+1]),
-                            args: vec![OscType::Float(amount)],
+                            args: vec![type_],
                         })) {
                             let _ = v.await;
                         };

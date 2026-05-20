@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 use std::sync::Arc;
-use osc_handler::osc_types_arc;
 use crate::osc::sender::RawSendMessage;
 use super::OscSender;
 
@@ -46,29 +45,32 @@ impl MultiplexerOsc{
     }
 }
 
-impl osc_handler::PacketHandler for MultiplexerOsc {
-    type Fut = futures::future::JoinAll<RawSendMessage<Arc<[u8]>>>;
-    type Output = Vec<(Result<usize, std::io::Error>, Arc<[u8]>)>;
-
-    fn handle(&mut self, message: Arc<osc_types_arc::OscPacket>) -> Self::Fut {
-        match rosc::encoder::encode(&rosc::OscPacket::from(message.as_ref())) {
+impl osc_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
+    type Output = Result<futures::future::JoinAll<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
+    fn handle(&mut self, message: rosc::OscPacket) -> Self::Output {
+        match rosc::encoder::encode(&message) {
             Ok(v) => {
                 let v = Arc::<[u8]>::from(v);
-                self.forward_sockets.iter().map(|socket|socket.send_raw_packet(v.clone())).collect()
+                Ok(self.forward_sockets.iter().map(|socket|socket.send_raw_packet(v.clone())).collect())
             }
             Err(err) => {
                 log::error!("Failed to encode a OSC Message: {err}, Packet was: {message:#?}");
-                Vec::new().into_iter().collect()
+                Err(err)
             }
         }
     }
 }
 
-impl osc_handler::RawPacketHandler for MultiplexerOsc {
-    type Fut<'a> = futures::future::JoinAll<RawSendMessage<&'a [u8]>>;
-    type Output<'a> = Vec<(Result<usize, std::io::Error>, &'a [u8])>;
+impl osc_handler::PeriodicParsingCheck for MultiplexerOsc {
+    type CheckOutput = ();
 
-    fn handle<'a>(&mut self, message: &'a[u8]) -> Self::Fut<'a> {
-        self.forward_sockets.iter().map(|socket|socket.send_raw_packet(message)).collect()
+    fn check(&mut self) -> Self::CheckOutput { () }
+}
+
+impl osc_handler::ArbitraryHandler<&'_ [u8]> for MultiplexerOsc {
+    type Output = futures::future::JoinAll<RawSendMessage<Arc<[u8]>>>;
+    fn handle(&mut self, message: &'_[u8]) -> Self::Output {
+        let buf = Arc::<[_]>::from(message);
+        self.forward_sockets.iter().map(|socket|socket.send_raw_packet(buf.clone())).collect()
     }
 }

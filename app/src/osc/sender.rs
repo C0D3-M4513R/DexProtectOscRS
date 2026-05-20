@@ -100,7 +100,7 @@ impl<A: AsRef<[u8]>+Debug> Future for SendMessageLogs<A>{
             Poll::Ready((Ok(v), bytes)) => {
                 #[cfg(all(debug_assertions, feature="debug_log"))]
                 {
-                    log::debug!("Sent the following OSC Message with {v} bytes:{bytes:#?}");
+                    log::trace!("Sent the following OSC Message with {v} bytes:{bytes:#?}");
                 }
                 Poll::Ready((Ok(v), bytes))
             },
