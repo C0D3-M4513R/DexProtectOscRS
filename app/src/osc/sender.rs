@@ -39,7 +39,7 @@ impl OscSender {
         Ok(self.send_raw_packet(rosc::encoder::encode(message)?))
     }
 
-    /// Sends a OSC Message via {@link #send_message_no_logs}.
+    /// Sends an OSC Message via [Self::send_message_no_logs].
     /// If there are any errors, they will be logged.
     /// If debug assertions are enabled, the sending attempt of the message will be logged and the successful sending will also be logged.
     pub fn send_message_with_logs(&self, message: &rosc::OscPacket) -> Result<SendMessageLogs<Vec<u8>>, rosc::OscError> {
@@ -48,7 +48,10 @@ impl OscSender {
         match self.send_message_no_logs(message) {
             Ok(fut) => Ok(SendMessageLogs{fut}),
             Err(e) => {
+                #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::error!("Failed to encode a OSC Message: {}, Packet was: {:#?}",e, message);
+                #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                log::error!("Failed to encode a OSC Message: {}", e);
                 Err(e)
             }
         }
