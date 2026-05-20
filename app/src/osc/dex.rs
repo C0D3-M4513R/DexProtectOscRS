@@ -161,6 +161,7 @@ impl DexOscHandler {
                 };
                 let mut i = 0;
                 let mut params = HashMap::with_capacity(len);
+                let mut js = tokio::task::JoinSet::new();
                 while i < len {
                     let string = format!("/avatar/parameters/{}", split[i+1]);
                     let type_;
@@ -210,7 +211,7 @@ impl DexOscHandler {
                             addr: string.clone(),
                             args: vec![type_],
                         })) {
-                            let _ = v.await;
+                            js.spawn(v);
                         };
                     }
                     i+=2;
@@ -224,8 +225,23 @@ impl DexOscHandler {
                         },
                         content: key
                     })){
-                        let _ = v.await;
+                        js.spawn(v);
                     };
+                }
+                while let Some(v) = js.join_next().await {
+                    match v{
+                        Ok((Ok(v), buf)) => {
+                            if v != buf.len() {
+                                log::warn!("Sent less bytes than were queued (sent {v} bytes, queued {} bytes)", buf.len());
+                            }
+                        }
+                        Ok((Err(err), buf)) => {
+                            log::error!("Failed to send {} bytes: {err}", buf.len());
+                        }
+                        Err(err) => {
+                            log::error!("Panicked whilst sending data: {err}");
+                        }
+                    }
                 }
                 log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
                 params.shrink_to_fit();
