@@ -152,6 +152,13 @@ impl DexOscHandler {
                 decoded = decoded.replace(",", ".");
                 #[cfg(all(debug_assertions, feature="debug_log"))]
                 log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
+                let decoded = if let Some(new) = decoded.strip_suffix("\x02\x02") {
+                    #[cfg(all(debug_assertions, feature="debug_log"))] //TODO: Why does this happen?
+                    log::warn!("Keyfile has a suspicious 0x0202 at the end of the keyfile. Removing.");
+                    new
+                } else {
+                    decoded.as_str()
+                };
                 let split:Vec<&str> = decoded.split("|").collect();
                 let len = if split.len()%2 == 0 {
                     split.len()
