@@ -120,6 +120,7 @@
             #rustfmt
             tokei
             pkgsCross.mingwW64.stdenv.cc
+            pkgsCross.mingwW64.windows.pthreads
           ] ++ commonBuildInputs;
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
           LD_LIBRARY_PATH = lib.makeLibraryPath commonBuildInputs;
