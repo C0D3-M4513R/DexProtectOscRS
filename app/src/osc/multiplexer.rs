@@ -46,7 +46,7 @@ impl MultiplexerOsc{
 }
 
 impl osc_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
-    type Output = Result<futures::future::JoinAll<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
+    type Output = Result<Vec<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
     fn handle(&mut self, message: rosc::OscPacket) -> Self::Output {
         match rosc::encoder::encode(&message) {
             Ok(v) => {
@@ -68,7 +68,7 @@ impl osc_handler::PeriodicParsingCheck for MultiplexerOsc {
 }
 
 impl osc_handler::ArbitraryHandler<&'_ [u8]> for MultiplexerOsc {
-    type Output = futures::future::JoinAll<RawSendMessage<Arc<[u8]>>>;
+    type Output = Vec<RawSendMessage<Arc<[u8]>>>;
     fn handle(&mut self, message: &'_[u8]) -> Self::Output {
         let buf = Arc::<[_]>::from(message);
         self.forward_sockets.iter().map(|socket|socket.send_raw_packet(buf.clone())).collect()

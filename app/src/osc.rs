@@ -111,7 +111,7 @@ pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::R
                 use futures::future::FutureExt;
                 let mut send_message = Vec::new();
                 if let Some(raw) = raw {
-                    send_message.push(raw);
+                    send_message.extend(raw);
                 }
                 let mut parse_err = Vec::new();
                 let fut = poll_stream_end(parse.into_iter()
@@ -122,7 +122,7 @@ pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::R
                         },
                         Ok((v, packet)) => {
                             if let Some(packet) = packet.map(Result::ok).flatten() {
-                                send_message.push(packet);
+                                send_message.extend(packet);
                             }
                             v.ok().into_iter()
                         }
