@@ -247,7 +247,7 @@ impl DexOscHandler {
                 params.shrink_to_fit();
                 let params_clone = self.params.clone();
                 let jh = tokio::task::spawn(async move {
-                    for i in 0..4 {
+                    for i in 1..=3 {
                         tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
                         let params = params_clone.lock();
                         let params = &*params;
