@@ -846,7 +846,7 @@ dependencies = [
 
 [[package]]
 name = "dex_protect_osc_rs"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "aes",
  "cbc",
