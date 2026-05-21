@@ -43,6 +43,11 @@ jobs:
         id: create_release
         with:
           generateReleaseNotes: true
+          immutableCreate: true
+          draft: true
+          updateOnlyUnreleased: true
+          makeLatest: ${{ !contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           artifacts: "artifacts/*"
   nixbuild:
     runs-on: ubuntu-latest
