@@ -101,7 +101,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: librust-atk-dev libglib2.0-dev libgtk-3-dev
+          packages: librust-atk-dev libglib2.0-dev libgtk-3-dev libgtk-4-dev libxdo-dev libappindicator3-dev
           execute_install_scripts: true
       - name: Run build
         run: cargo build --target ${{ matrix.target }} --release --features ${{ matrix.features }} --package dex_protect_osc_rs --bin dex_protect_osc_rs
