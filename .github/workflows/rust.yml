@@ -65,25 +65,30 @@ jobs:
       matrix:
         rust: [stable]
         target: [x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, i686-pc-windows-msvc, x86_64-apple-darwin, aarch64-apple-darwin] #x86_64-unknown-linux-musl,
-        features: ["file_dialog,tray"]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux_64-bit
+            features: "file_dialog,tray"
           #- os: ubuntu-latest
           #  target: x86_64-unknown-linux-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: windows_64-bit
+            features: "file_dialog,tray"
           - os: windows-latest
             target: i686-pc-windows-msvc
             name: windows_32-bit
+            features: "file_dialog,tray"
+#FIXME(tray-icon): Mac is known broken currently: https://github.com/tauri-apps/muda/pull/341#issuecomment-4504194244
           - os: macos-latest
             target: x86_64-apple-darwin
             name: macos_64-bit
+            features: "file_dialog"
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos_aarch64
+            features: "file_dialog"
       fail-fast: false
     steps:
       - name: Checkout repository
