@@ -13,29 +13,42 @@ egui_tracing = "0.3"
 egui_extras = "0.34"
 egui = "0.34"
 eframe = { version = "0.34", features = [ "persistence"] }
+
+#https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
+#https://github.com/tauri-apps/tray-icon/issues/261
+#rev is latest commit on branch feat/gtk4 at time of writing
+tray-icon = { version = "0.21.3", git = "https://github.com/rmakestrash-jpg/tray-icon.git", rev = "1d014fd17ceef7eb0d1841c4a62675fa754ee02b", optional = true}
+
 #Logging
 log = "0.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-core = "0.1"
 thiserror = "2.0.17"
+
 #Persistant data storage
 serde_derive = "1"
 serde = "1"
+
 #async driver
 tokio = { version = "1", features = ["full"] }
+parking_lot = "0.12.5"
+futures = "0.3"
+
 #osc
 rosc = "0.11.4"
 osc-handler = {path = "../osc-handler", version = "0.1.0", features = ["tokio"]}
 unicode-bom = "2"
-futures = "0.3"
+
 #cypher
 cbc = { version = "0.2.0", features = ["alloc"] }
 aes = "0.9.0"
 #block-padding = "0.3.3"
 
+
 [features]
 default = ["file_dialog"]
 file_dialog = ["dep:rfd"]
+tray = ["dep:tray-icon"]
 no_decryption_keys = []
 oscquery = []
 debug_log = ["osc-handler/debug_log"]

@@ -24,6 +24,7 @@
           gsettings-desktop-schemas #https://nixos.org/manual/nixpkgs/unstable/#ssec-gnome-common-issues
           xorg.libxcb
           gtk3.dev
+          gtk4
           pkg-config
 
           libGL
@@ -40,6 +41,7 @@
         	wayland
           libGL
           libxkbcommon
+          libappindicator
         ];
         app = pkgs.rustPlatform.buildRustPackage {
 					name = manifest.name;
@@ -48,6 +50,10 @@
 					src = pkgs.lib.cleanSource ./.;
 					cargoLock = {
 						lockFile = ./Cargo.lock;
+						outputHashes = {
+								 "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
+								 "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+						};
 					};
 					doCheck = true;
 
@@ -120,11 +126,14 @@
             #rustfmt
             tokei
             heaptrack
+            #windows cross-building
             pkgsCross.mingwW64.stdenv.cc
             pkgsCross.mingwW64.windows.pthreads
-          ] ++ commonBuildInputs;
+            #linux tray stuff
+            xdotool
+          ] ++ commonBuildInputs ++ runtimeDependencies;
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
-          LD_LIBRARY_PATH = lib.makeLibraryPath commonBuildInputs;
+          LD_LIBRARY_PATH = lib.makeLibraryPath (commonBuildInputs ++ runtimeDependencies);
           GIT_EXTERNAL_DIFF = "${difftastic}/bin/difft";
         };
       });

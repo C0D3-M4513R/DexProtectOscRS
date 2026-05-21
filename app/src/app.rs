@@ -302,6 +302,14 @@ impl<'a> App<'a> {
 
     fn osc_control_ui(&mut self, ui: &mut egui::Ui){
         ui.heading("Generic Osc Controls:");
+        #[cfg(feature = "tray")]
+        ui.horizontal(|ui|{
+            ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
+            let mut quit = crate::QUIT.lock();
+            ui.checkbox(&mut*quit, ());
+        });
+        #[cfg(feature = "tray")]{
+        }
         ui.horizontal(|ui|{
             ui.label("IP:");
             ui.text_edit_singleline(&mut self.ip);
