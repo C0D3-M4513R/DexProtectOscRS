@@ -44,8 +44,12 @@ static IS_OPEN:AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "tray")]
 static OPEN:tokio::sync::Notify = tokio::sync::Notify::const_new();
 const ICON_BYTES:&'static [u8] = include_bytes!("../../images/app.png");
-#[tokio::main]
-async fn async_main(collector: egui_tracing::EventCollector){
+fn async_main(collector: egui_tracing::EventCollector){
+    let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+    );
     log::info!("Tokio Runtime initialized");
     let icon = Arc::new(eframe::icon_data::from_png_bytes(ICON_BYTES).expect("Failed to load icon"));
     #[cfg(feature = "tray")]
@@ -136,7 +140,9 @@ async fn async_main(collector: egui_tracing::EventCollector){
                 {
                     IS_OPEN.store(true, std::sync::atomic::Ordering::Release);
                 }
-                let app = tokio::task::block_in_place(||tokio::runtime::Handle::current().block_on(app.get_or_init(||Arc::new(tokio::sync::Mutex::new(app::App::new(collector, cc)))).clone().lock_owned()));
+                let app = runtime.block_on(app.get_or_init(
+                    ||Arc::new(tokio::sync::Mutex::new(app::App::new(collector, cc, runtime.clone())))
+                ).clone().lock_owned());
                 Ok(Box::new(WrapApp(app)))
             }),
         )
@@ -153,7 +159,7 @@ async fn async_main(collector: egui_tracing::EventCollector){
             if *QUIT.lock() {
                 break;
             }
-            OPEN.notified().await;
+            runtime.block_on(OPEN.notified());
             if *QUIT.lock() {
                 break;
             }
