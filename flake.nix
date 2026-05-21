@@ -28,19 +28,23 @@
           pkg-config
 
           libGL
-          libxkbcommon
-          wayland
           xorg.libX11
           xorg.libXcursor
           xorg.libXi
           xorg.libXrandr
           xorg.libxcb
           fontconfig
-        ];
+        ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isUnix [
+					libxkbcommon
+				] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+					wayland
+ 				];
         runtimeDependencies = with pkgs; [
-        	wayland
           libGL
-          libxkbcommon
+        ]++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isUnix [
+					libxkbcommon
+				] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+        	wayland
           libappindicator
         ];
         app = pkgs.rustPlatform.buildRustPackage {
@@ -69,7 +73,8 @@
 					buildInputs = with pkgs; [
 					] ++ commonBuildInputs;
 
-					buildFeatures = ["tray"];
+				  #FIXME(tray-icon): Darwin has is known broken compilation for tray-icon: https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
+					buildFeatures = [] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
 
 					desktopItems =
 					let
@@ -102,7 +107,7 @@
             #        '';
             #      }))
 #						license = pkgs.lib.licenses.unfreeRedistributable; #Technically this is unfree redistributable, but I don't wanna build my nixos impure every-time.
-						platforms = pkgs.lib.platforms.linux ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
+						platforms = pkgs.lib.platforms.unix ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
 						mainProgram = manifest.name;
 					};
 				};
@@ -128,13 +133,14 @@
             #rustc
             #rustfmt
             tokei
-            heaptrack
             #windows cross-building
             pkgsCross.mingwW64.stdenv.cc
             pkgsCross.mingwW64.windows.pthreads
+          ] ++ commonBuildInputs ++ runtimeDependencies ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+						heaptrack
             #linux tray stuff
             xdotool
-          ] ++ commonBuildInputs ++ runtimeDependencies;
+					];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
           LD_LIBRARY_PATH = lib.makeLibraryPath (commonBuildInputs ++ runtimeDependencies);
           GIT_EXTERNAL_DIFF = "${difftastic}/bin/difft";
