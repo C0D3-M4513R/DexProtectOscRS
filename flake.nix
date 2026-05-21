@@ -68,6 +68,8 @@
 					buildInputs = with pkgs; [
 					] ++ commonBuildInputs;
 
+					buildFeatures = ["tray"];
+
 					desktopItems =
 					let
 					  item = pkgs.makeDesktopItem {
