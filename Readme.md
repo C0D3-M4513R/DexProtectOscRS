@@ -51,7 +51,7 @@ Though without `app/src/osc/dex_key.rs` present you might want to activate the `
 Without those keys however newer versions of DexProtect Keys will fail to be read properly!
 
 ## Building Keys into the library
-If you wish to build a custom version of this library with some encryption keys baked into the executable, you can activate the `keys` feature
+If you wish to build a custom version of this library with some encryption keys baked into the executable, you can activate the `compile_time_key_include` feature
 and create a `keys` folder in the main repository folder (right alongside this Readme.md file!).
 Please note, that the keys are expected to have the same file-names and content as the keys in the normal DexProtect folder.
 
