@@ -37,6 +37,31 @@ If that happens, just scroll up, so you are not on the very bottom anymore and t
 # Notes
 - The Application doesn't handle one Udp Packet containting multiple OSC Packets well.
 
+## Building for yourself
+This repository does not have a License attached! This is deliberate.
+
+You are however free to redistribute compiled versions of this source code.
+But also note, that the not-included `app/src/osc/dex_key.rs` file is not to be distributed at all (and is therefore not included in the source-code)!
+The same goes for the actual IV and KEY contained within that file in ANY WAY SHAPE OR FORM.
+This restriction originates from the DexProtect Creator, which asked me (and likely in sentiment also others who discover this information) to abide by this.
+
+As a special case, you are allowed to reformat the contents of `app/src/osc/dex_key.rs` as you wish/need
+Note that you can redistribute versions of this app, which were compiled with app/src/osc/dex_key.rs present and without it present.
+Though without `app/src/osc/dex_key.rs` present you might want to activate the `no_decryption_keys` feature to fix the compilation errors.
+Without those keys however newer versions of DexProtect Keys will fail to be read properly!
+
+## Building Keys into the library
+If you wish to build a custom version of this library with some encryption keys baked into the executable, you can activate the `keys` feature
+and create a `keys` folder in the main repository folder (right alongside this Readme.md file!).
+Please note, that the keys are expected to have the same file-names and content as the keys in the normal DexProtect folder.
+
+After compiling any key, that was present in that `keys` folder will then be used to unlock avatars corresponding to those keys.
+Please note that the keys ARE NOT SAFE in the binary. You can still extract them. It will just be a bit harder!
+
+## Modifications
+In general modifications of any kind are discouraged.
+If you have issues feel free to open an issue or @ me on dextro's discord.
+
 # VRChat on Linux
 On Linux VRChat is started with Proton. For me (under NixOs) starting VRChat under Proton and then starting this app under Linux does not work.
 To fix that, you have 2 Options:
