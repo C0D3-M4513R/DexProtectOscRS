@@ -405,7 +405,10 @@ impl<'a> eframe::App for App<'a> {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(90.));
             }
             if logs_visible {
-                strip_builder = strip_builder.size(egui_extras::Size::remainder());
+                //FIXME(egui_tracing): Using a Size of Remaining causes issue:
+                // - https://github.com/grievouz/egui_tracing/issues/48
+                // - https://github.com/grievouz/egui_tracing/issues/47
+                strip_builder = strip_builder.size(egui_extras::Size::exact(500.));
             }
             strip_builder.vertical(|mut strip| {
                 strip.cell(|ui|{
