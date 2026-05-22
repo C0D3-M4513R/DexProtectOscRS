@@ -64,6 +64,7 @@
 					nativeBuildInputs = [
 						pkgs.autoPatchelfHook
 						pkgs.wrapGAppsHook3
+						pkgs.copyDesktopItems
 						pkgs.rust-bin.stable.latest.minimal
 						pkgs.pkg-config
 					];
