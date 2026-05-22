@@ -8,8 +8,8 @@ publish = false
 
 [dependencies]
 #OSC library
-rosc = "0.11.4"
-nom = "7"
+rosc = { version = "0.11.4" , optional = true }
+nom = { version = "7" , optional = true }
 #logging
 log = "0.4"
 #Sorted vec according to a timestamp.
@@ -29,6 +29,7 @@ tokio =  { version = "1", features = [
 ], optional = true}
 
 [features]
+osc = ["dep:nom", "dep:rosc"]
 debug_log = []
-std = []
+std = ["osc"]
 tokio = ["std", "dep:tokio"]

@@ -3,11 +3,9 @@
 extern crate alloc;
 pub(crate) use alloc::{vec::Vec, vec, boxed::Box};
 
-#[cfg(feature = "tokio")]
-pub mod tokio_receiver;
 pub mod handlers;
-#[cfg(feature = "std")]
-pub mod std_receiver;
+
+pub mod osc;
 
 ///Handle the processing of a particular type
 pub trait ArbitraryHandler<T>{

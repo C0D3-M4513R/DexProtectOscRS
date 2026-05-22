@@ -8,8 +8,8 @@ use tokio::net::UdpSocket;
 use crate::{ArbitraryHandler, PeriodicParsingCheck};
 use crate::handlers::buffered_raw_packet_handler::BufferedRawPacketHandler;
 use crate::handlers::combined_handler::{CombinedHandler, CombinedRefHandler};
-use crate::handlers::packet_handler::PacketHandler;
-use crate::handlers::raw_packet_handler::RawPacketHandler;
+use crate::handlers::osc::packet_handler::PacketHandler;
+use crate::handlers::osc::raw_packet_handler::RawPacketHandler;
 
 const DEFAULT_ALLOC:usize = 1024;
 

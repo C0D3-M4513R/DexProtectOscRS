@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use serde_derive::{Deserialize, Serialize};
-use osc_handler::tokio_receiver::OscReceiver;
+use osc_handler::osc::tokio_receiver::OscReceiver;
 
 pub use sender::OscSender;
 

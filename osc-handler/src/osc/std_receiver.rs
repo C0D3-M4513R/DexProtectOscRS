@@ -6,10 +6,10 @@ use core::num::NonZeroUsize;
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use crate::{ArbitraryHandler, PeriodicParsingCheck};
-use crate::handlers::raw_packet_handler::RawPacketHandler;
+use crate::handlers::osc::raw_packet_handler::RawPacketHandler;
 use crate::handlers::buffered_raw_packet_handler::BufferedRawPacketHandler;
 use crate::handlers::combined_handler::{CombinedHandler, CombinedRefHandler};
-use crate::handlers::packet_handler::PacketHandler;
+use crate::handlers::osc::packet_handler::PacketHandler;
 
 const DEFAULT_ALLOC:usize = 1024;
 
