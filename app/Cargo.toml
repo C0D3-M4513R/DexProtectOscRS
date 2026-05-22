@@ -44,11 +44,17 @@ cbc = { version = "0.2.0", features = ["alloc"] }
 aes = "0.9.0"
 #block-padding = "0.3.3"
 
+app_macro = {path = "../app_macro"}
+phf = { version = "0.13.1", features = ["macros"], optional = true }
 
 [features]
 default = ["file_dialog"]
+
 file_dialog = ["dep:rfd"]
 tray = ["dep:tray-icon"]
-no_decryption_keys = []
+
+compile_time_key_include = ["dep:phf"]
+
 oscquery = []
+no_decryption_keys = []
 debug_log = ["osc-handler/debug_log"]

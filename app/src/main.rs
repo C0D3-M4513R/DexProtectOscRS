@@ -43,7 +43,21 @@ static QUIT:parking_lot::Mutex<bool> = parking_lot::Mutex::new(false);
 static IS_OPEN:AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "tray")]
 static OPEN:tokio::sync::Notify = tokio::sync::Notify::const_new();
-const ICON_BYTES:&'static [u8] = include_bytes!("../../images/app.png");
+struct Image{
+    width: u32,
+    height: u32,
+    rgba: &'static [u8],
+}
+impl From<Image> for egui::IconData {
+    fn from(value: Image) -> Self {
+        Self {
+            width: value.width,
+            height: value.height,
+            rgba: Vec::from(value.rgba),
+        }
+    }
+}
+const ICON_BYTES:Image = ::app_macro::include_image!("../../images/app.png");
 fn async_main(collector: egui_tracing::EventCollector){
     let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -51,7 +65,7 @@ fn async_main(collector: egui_tracing::EventCollector){
         .unwrap()
     );
     log::info!("Tokio Runtime initialized");
-    let icon = Arc::new(eframe::icon_data::from_png_bytes(ICON_BYTES).expect("Failed to load icon"));
+    let icon = Arc::<egui::IconData>::new(ICON_BYTES.into());
     #[cfg(feature = "tray")]
     {
         let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height).expect("Failed to load tray-icon");

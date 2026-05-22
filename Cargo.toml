@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "app",
+    "app_macro",
     "osc-handler"
 ]
 resolver = "3"
