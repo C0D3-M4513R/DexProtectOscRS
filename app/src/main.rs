@@ -2,13 +2,8 @@
 #![deny(clippy::expect_used)]
 #![windows_subsystem = "windows"]
 
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 use std::sync::Arc;
-#[cfg(feature = "tray")]
-use std::sync::atomic::AtomicBool;
-use std::time::Duration;
-use eframe::{Frame, Storage};
-use egui::{Context, RawInput, Ui, Visuals};
 
 mod app;
 pub(crate) mod osc;
@@ -40,7 +35,7 @@ fn main() {
 #[cfg(feature = "tray")]
 static QUIT:parking_lot::Mutex<bool> = parking_lot::Mutex::new(false);
 #[cfg(feature = "tray")]
-static IS_OPEN:AtomicBool = AtomicBool::new(false);
+static IS_OPEN:parking_lot::Mutex<Option<egui::Context>> = parking_lot::Mutex::new(None);
 #[cfg(feature = "tray")]
 static OPEN:tokio::sync::Notify = tokio::sync::Notify::const_new();
 struct Image{
@@ -92,6 +87,9 @@ fn async_main(collector: egui_tracing::EventCollector){
             tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
                 if v.id == quit {
                     *QUIT.lock() = true;
+                    if let Some(ctx) = &*IS_OPEN.lock() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 }
                 if v.id == quit || v.id == open {
                     OPEN.notify_one();
@@ -102,20 +100,20 @@ fn async_main(collector: egui_tracing::EventCollector){
 
     struct WrapApp<T>(T);
     impl<D: eframe::App, T:Deref<Target = D> + DerefMut> eframe::App for WrapApp<T> {
-        fn logic(&mut self, ctx: &Context, frame: &mut Frame) {
+        fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
             D::logic(&mut *self.0, ctx, frame)
         }
 
-        fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
+        fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
             D::ui(&mut *self.0, ui, frame)
         }
 
-        fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+        fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
             #[allow(deprecated)]
             D::update(&mut *self.0, ctx, frame)
         }
 
-        fn save(&mut self, storage: &mut dyn Storage) {
+        fn save(&mut self, storage: &mut dyn eframe::Storage) {
             D::save(&mut *self.0, storage)
         }
 
@@ -123,11 +121,11 @@ fn async_main(collector: egui_tracing::EventCollector){
             D::on_exit(&mut *self.0)
         }
 
-        fn auto_save_interval(&self) -> Duration {
+        fn auto_save_interval(&self) -> core::time::Duration {
             D::auto_save_interval(&*self.0)
         }
 
-        fn clear_color(&self, visuals: &Visuals) -> [f32; 4] {
+        fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
             D::clear_color(&*self.0, visuals)
         }
 
@@ -135,7 +133,7 @@ fn async_main(collector: egui_tracing::EventCollector){
             D::persist_egui_memory(&*self.0)
         }
 
-        fn raw_input_hook(&mut self, ctx: &Context, raw_input: &mut RawInput) {
+        fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
             D::raw_input_hook(&mut *self.0, ctx, raw_input)
         }
     }
@@ -152,7 +150,7 @@ fn async_main(collector: egui_tracing::EventCollector){
             Box::new(|cc| {
                 #[cfg(feature = "tray")]
                 {
-                    IS_OPEN.store(true, std::sync::atomic::Ordering::Release);
+                    *IS_OPEN.lock() = Some(cc.egui_ctx.clone());
                 }
                 let app = runtime.block_on(app.get_or_init(
                     ||Arc::new(tokio::sync::Mutex::new(app::App::new(collector, cc, runtime.clone())))
@@ -169,7 +167,7 @@ fn async_main(collector: egui_tracing::EventCollector){
         }
         #[cfg(feature = "tray")]
         {
-            IS_OPEN.store(false, std::sync::atomic::Ordering::Release);
+            *IS_OPEN.lock() = None;
             if *QUIT.lock() {
                 break;
             }
