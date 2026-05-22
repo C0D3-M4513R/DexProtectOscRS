@@ -311,15 +311,22 @@ impl<'a> App<'a> {
     }
 
     fn osc_control_ui(&mut self, ui: &mut egui::Ui){
-        ui.heading("Generic Osc Controls:");
         #[cfg(feature = "tray")]
-        ui.horizontal(|ui|{
-            ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
-            let mut quit = crate::QUIT.lock();
-            ui.checkbox(&mut*quit, ());
-        });
-        #[cfg(feature = "tray")]{
+        {
+            ui.heading("Generic Controls:");
+            ui.horizontal(|ui|{
+                ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
+                let mut quit = crate::QUIT.lock();
+                ui.checkbox(&mut*quit, ());
+            });
+            if ui.button("Quit Immediately").clicked() {
+                *crate::QUIT.lock() = true;
+                ui.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
+        ui.add_space(16.);
+
+        ui.heading("Generic Osc Controls:");
         ui.horizontal(|ui|{
             ui.label("IP:");
             ui.text_edit_singleline(&mut self.ip);
@@ -389,28 +396,18 @@ impl<'a> eframe::App for App<'a> {
             let osc_multiplexer_enabled = self.osc_multiplexer_enabled;
             let logs_visible = self.logs_visible;
             let mut strip_builder = egui_extras::StripBuilder::new(ui);
+            strip_builder = strip_builder.size(egui_extras::Size::exact(130.))
+                .size(egui_extras::Size::exact(25.));
             if dex_protect_enabled {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(80.));
             }
             if osc_multiplexer_enabled {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(90.));
             }
-            strip_builder = strip_builder.size(egui_extras::Size::exact(130.))
-                .size(egui_extras::Size::exact(25.));
             if logs_visible {
                 strip_builder = strip_builder.size(egui_extras::Size::remainder());
             }
             strip_builder.vertical(|mut strip| {
-                if dex_protect_enabled {
-                    strip.cell(|ui|{
-                        self.dex_protect_ui(ui);
-                    });
-                }
-                if osc_multiplexer_enabled {
-                    strip.cell(|ui|{
-                        self.multiplexer_ui(ui);
-                    });
-                }
                 strip.cell(|ui|{
                     self.osc_control_ui(ui);
                 });
@@ -423,9 +420,18 @@ impl<'a> eframe::App for App<'a> {
                         ui.checkbox(&mut self.osc_multiplexer_enabled, "Enable Osc Multiplexer (allows for multiple Osc send applications) ");
                     });
                 });
+                if dex_protect_enabled {
+                    strip.cell(|ui|{
+                        self.dex_protect_ui(ui);
+                    });
+                }
+                if osc_multiplexer_enabled {
+                    strip.cell(|ui|{
+                        self.multiplexer_ui(ui);
+                    });
+                }
                 if logs_visible {
                     strip.cell(|ui|{
-                        ui.request_repaint_after_secs(15.);
                         ui.add(egui_tracing::Logs::new(self.collector.clone()));
                     });
                 }
