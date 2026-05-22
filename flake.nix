@@ -83,11 +83,16 @@
 							desktopName = "DexProtectOscRs";
 							exec = manifest.name;
 							categories = [
-								"Game"
 								"Utility"
 							];
+							icon = "dex_protect_osc_rs";
 						};
 					in [ item ];
+
+					postInstall = ''
+						mv images/app.png images/dex_protect_osc_rs.png
+						install -Dm644 -t $out/share/icons images/dex_protect_osc_rs.png
+					'';
 
 					meta = {
 						description = "Open-Source Implementation of the accompanying app for DexProtect";
