@@ -40,6 +40,11 @@ pub struct App<'a>{
     osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
+    #[cfg(feature = "tray")]
+    #[allow(dead_code)]
+    icon: tray_icon::TrayIcon,
+    #[cfg(feature = "tray")]
+    quit: Arc<parking_lot::Mutex<bool>>,
 }
 impl<'a> Debug for App<'a>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -125,6 +130,49 @@ impl<'a> App<'a> {
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
 
+        let quit_mut = Arc::new(parking_lot::Mutex::new(false));
+
+        #[cfg(feature="tray")]
+        let icon = {
+            let ctx = cc.egui_ctx.clone();
+            let icon = &crate::ICON_BYTES;
+            let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
+            let menu = tray_icon::menu::Menu::new();
+            let open = tray_icon::menu::MenuItem::new("Open", true, None);
+            let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
+            menu.append_items(&[&open, &quit]).expect("Failed to build menu");
+
+            let icon = match tray_icon::TrayIconBuilder::new()
+                .with_icon(tray_icon)
+                .with_menu(Box::new(menu))
+                .build()
+            {
+                Ok(icon) => icon,
+                Err(err) => {
+                    log::error!("Failed to spawn Tray: {err}");
+                    panic!("Failed to spawn Tray: {err}");
+                }
+            };
+
+            {
+                let quit_mut = quit_mut.clone();
+                let open = open.into_id();
+                let quit = quit.into_id();
+                tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
+                    if v.id == quit {
+                        *quit_mut.lock() = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if v.id == open {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    }
+                }))
+            }
+
+            icon
+        };
+
+
         let mut slf = Self {
             collector,
             data,
@@ -134,6 +182,10 @@ impl<'a> App<'a> {
             osc_join_set: None,
             popups: Default::default(),
             runtime,
+            #[cfg(feature="tray")]
+            icon,
+            #[cfg(feature="tray")]
+            quit: quit_mut
         };
 
         if slf.auto_connect_launch{
@@ -314,13 +366,13 @@ impl<'a> App<'a> {
         #[cfg(feature = "tray")]
         {
             ui.heading("Generic Controls:");
+            let mut quit = self.quit.lock();
             ui.horizontal(|ui|{
                 ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
-                let mut quit = crate::QUIT.lock();
                 ui.checkbox(&mut*quit, ());
             });
             if ui.button("Quit Immediately").clicked() {
-                *crate::QUIT.lock() = true;
+                *quit = true;
                 ui.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
@@ -388,6 +440,18 @@ impl<'a> App<'a> {
 }
 
 impl<'a> eframe::App for App<'a> {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(feature = "tray")]
+        {
+            let quit = *self.quit.lock();
+            if ctx.input(|v|v.viewport().close_requested()){
+                if !quit {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                }
+            }
+        }
+    }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.check_osc_thread();
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -460,7 +524,7 @@ impl<'a> eframe::App for App<'a> {
         eframe::set_value(storage,eframe::APP_KEY, &self.data)
     }
 }
-type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a;
+type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a + Send;
 
 fn get_id() -> u64 {
     static ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -469,7 +533,7 @@ fn get_id() -> u64 {
 
 fn popup_creator<'a>(
     title: impl Into<egui::WidgetText> + 'a,
-    add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
+    add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a + Send,
 ) -> Box<PopupFunc<'a>> {
     popup_creator_collapsible(title, false, add_content)
 }
@@ -477,7 +541,7 @@ fn popup_creator<'a>(
 fn popup_creator_collapsible<'a>(
     title: impl Into<egui::WidgetText> + 'a,
     collapsible: bool,
-    mut add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
+    mut add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a + Send,
 ) -> Box<PopupFunc<'a>> {
     let title = title.into();
     let id = get_id();
