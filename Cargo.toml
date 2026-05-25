@@ -1,12 +1,16 @@
-
-
 [workspace]
 members = [
     "app",
+    "app_macro",
     "osc-handler"
 ]
-resolver = "2"
+resolver = "3"
 
 [profile.release]
 strip = true
 lto = true
+
+
+#ref. https://github.com/tauri-apps/muda/pull/341
+[patch.crates-io]
+muda = {version = "0.17.1", git = "https://github.com/rmakestrash-jpg/muda.git", rev = "350b9bda3eabd7327e1a2592019cd33e7f559d44"}

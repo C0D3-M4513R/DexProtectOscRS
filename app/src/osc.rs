@@ -1,17 +1,12 @@
 use std::convert::Infallible;
-use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
-use futures::future::Either;
-
 use serde_derive::{Deserialize, Serialize};
-use osc_handler::receiver::OscReceiver;
+use osc_handler::osc::tokio_receiver::OscReceiver;
 
 pub use sender::OscSender;
-use crate::osc::dex::DexOscHandler;
-use crate::osc::multiplexer::MultiplexerOsc;
 
 mod sender;
 mod dex;
@@ -20,6 +15,7 @@ mod dex_key;
 
 pub const OSC_RECV_PORT:u16 = 9001;
 pub const OSC_SEND_PORT:u16 = 9000;
+pub const OSC_RECV_BUFFER_SIZE:usize = 8192;
 
 #[derive(Debug, Clone,Serialize,Deserialize)]
 #[serde(default)]
@@ -41,7 +37,7 @@ impl Default for OscCreateData {
             ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             recv_port: OSC_RECV_PORT,
             send_port: OSC_SEND_PORT,
-            max_message_size: osc_handler::OSC_RECV_BUFFER_SIZE,
+            max_message_size: OSC_RECV_BUFFER_SIZE,
             dex_protect_enabled: true,
             dex_use_bundles: false,
             path: PathBuf::new(),
@@ -51,73 +47,28 @@ impl Default for OscCreateData {
     }
 }
 
-enum MessageHandlers{
-    Dex(DexOscHandler),
-    Stub(osc_handler::multple_handler::StubHandler),
-}
-impl osc_handler::MessageHandler for MessageHandlers {
-    type Fut = Either<core::future::Ready<()>, Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
-    type Output = ();
-
-    fn handle(&mut self, message: Arc<rosc::OscMessage>) -> Self::Fut {
-        match self {
-            MessageHandlers::Dex(handler) => handler.handle(message),
-            MessageHandlers::Stub(handler) => Either::Left(handler.handle(message)),
+fn poll_stream_end<S:futures::Stream + Unpin + 'static>(mut stream: S) -> core::future::PollFn<impl FnMut(&'_ mut core::task::Context<'_>) -> core::task::Poll<()>> {
+    use futures::stream::StreamExt;
+    core::future::poll_fn(move |cx|{
+        match stream.poll_next_unpin(cx) {
+            core::task::Poll::Ready(Some(_)) => core::task::Poll::Pending,
+            core::task::Poll::Ready(None) => core::task::Poll::Ready(()),
+            core::task::Poll::Pending => core::task::Poll::Pending,
         }
-    }
-}
-
-
-enum PacketHandlers{
-    Multiplexer(MultiplexerOsc),
-    Stub(osc_handler::multple_handler::StubHandler),
-}
-
-impl osc_handler::PacketHandler for PacketHandlers {
-    type Fut = Either<core::future::Ready<()>, Pin<Box<dyn Future<Output = Self::Output> + Send>>>;
-    type Output = ();
-
-    fn handle(&mut self, message: Arc<osc_handler::osc_types_arc::OscPacket>) -> Self::Fut {
-        match self {
-            PacketHandlers::Multiplexer(handler) => {
-                let mut handler = handler.clone();
-                Either::Right(Box::pin(async move {handler.handle(message).await;}))
-            },
-            PacketHandlers::Stub(handler) => Either::Left(handler.handle(message)),
-        }
-    }
-}
-enum RawPacketHandlers{
-    Multiplexer(MultiplexerOsc),
-    Stub(osc_handler::multple_handler::StubHandler),
-}
-
-impl osc_handler::RawPacketHandler for RawPacketHandlers {
-    type Fut<'a> = Either<core::future::Ready<()>, Pin<Box<dyn Future<Output = Self::Output<'a>> + Send + 'a>>>;
-    type Output<'a> = ();
-
-    fn handle<'a>(&mut self, message: &'a[u8]) -> Self::Fut<'a> {
-        match self {
-            RawPacketHandlers::Multiplexer(handler) => {
-                let mut handler = handler.clone();
-                Either::Right(Box::pin(async move {handler.handle(message).await;}))
-            },
-            RawPacketHandlers::Stub(handler) => Either::Left(handler.handle(message)),
-        }
-    }
+    })
 }
 
 pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::Result<tokio::task::JoinSet<Infallible>> {
-    let mut message_handlers = MessageHandlers::Stub(osc_handler::multple_handler::StubHandler);
-    let mut packet_handlers = PacketHandlers::Stub(osc_handler::multple_handler::StubHandler);
-    let mut raw_packet_handlers = RawPacketHandlers::Stub(osc_handler::multple_handler::StubHandler);
+    let mut message_handlers = None;
+    let mut packet_handlers = None;
+    let mut raw_packet_handlers = None;
 
     if osc_create_data.dex_protect_enabled {
         match OscSender::new(osc_create_data.ip, osc_create_data.send_port).await {
             Ok(v) => {
                 log::info!("Created OSC Sender.");
                 let osc = Arc::new(v);
-                message_handlers = MessageHandlers::Dex(dex::DexOscHandler::new(osc_create_data, osc));
+                message_handlers = Some(dex::DexOscHandler::new(osc_create_data, osc));
                 log::info!("Created DexProtectOsc Handler.");
             },
             Err(e) => {
@@ -131,13 +82,86 @@ pub async fn create_and_start_osc(osc_create_data: &OscCreateData) -> std::io::R
         let multiplexer = multiplexer::MultiplexerOsc::new(osc_create_data.ip, osc_create_data.osc_multiplexer_rev_port.clone()).await?;
         log::info!("Created OSC Multiplexer");
         if osc_create_data.osc_multiplexer_parse_packets {
-            packet_handlers = PacketHandlers::Multiplexer(multiplexer);
+            packet_handlers = Some(multiplexer);
         } else {
-            raw_packet_handlers = RawPacketHandlers::Multiplexer(multiplexer);
+            raw_packet_handlers = Some(multiplexer);
         }
     }
     let mut js = tokio::task::JoinSet::new();
-    OscReceiver::new(osc_create_data.ip, osc_create_data.recv_port, osc_create_data.max_message_size, core::iter::once(message_handlers), core::iter::once(packet_handlers), core::iter::once(raw_packet_handlers)).await?.listen(&mut js);
+    OscReceiver::new(
+        osc_create_data.ip,
+        osc_create_data.recv_port,
+        NonZeroUsize::new(osc_create_data.max_message_size),
+        None,
+        message_handlers,
+        packet_handlers,
+        raw_packet_handlers
+    ).await?
+        .listen(
+            &mut js,
+            |(_, (out, _)), _|{
+                let stream: futures::stream::FuturesUnordered<_> = out.into_iter()
+                    .flat_map(|v|v.into_iter())
+                    .flat_map(|v|v.into_iter())
+                    .flat_map(|v|v.into_iter())
+                    .collect();
+                poll_stream_end(stream)
+            },
+            |(raw, parse), _|{
+                use futures::future::FutureExt;
+                let mut send_message = Vec::new();
+                if let Some(raw) = raw {
+                    send_message.extend(raw);
+                }
+                let mut parse_err = Vec::new();
+                let fut = poll_stream_end(parse.into_iter()
+                    .flat_map(|v|match v{
+                        Err(err) => {
+                            parse_err.push(err);
+                            None.into_iter()
+                        },
+                        Ok((v, packet)) => {
+                            if let Some(packet) = packet.map(Result::ok).flatten() {
+                                send_message.extend(packet);
+                            }
+                            v.ok().into_iter()
+                        }
+                    })
+                    .flat_map(|v|v.into_iter())
+                    .flat_map(|v|v.into_iter())
+                    .flat_map(|v|v.into_iter())
+                    .collect::<futures::stream::FuturesUnordered<_>>());
+                let non_empty_send_message = !send_message.is_empty();
+                let fut = futures::future::join(
+                    poll_stream_end(
+                        send_message.into_iter()
+                            .map(|v|v.map(|(v, buf)|match v {
+                                Ok(v) => {
+                                    if v != buf.len() {
+                                        log::warn!("Sent less bytes than were queued ({v} sent, {} queued)", buf.len());
+                                    } else {
+                                        #[cfg(all(debug_assertions, feature="debug_log"))]
+                                        log::trace!("Sent {v} bytes of {} queued bytes.", buf.len());
+                                    }
+                                },
+                                Err(err) => {
+                                    log::warn!("Failed to send message: {err}");
+                                }
+                            }))
+                            .collect::<futures::stream::FuturesUnordered<_>>()
+                    ),
+                    fut
+                ).map(move |_|{
+                    if non_empty_send_message {
+                        log::info!("Future Polled to completion");
+                    }
+
+                    ()
+                });
+
+                (parse_err.into_iter(), fut)
+            }
+        );
     log::info!("Started OSC Listener.");
     Ok(js)
 }

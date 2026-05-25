@@ -24,22 +24,28 @@
           gsettings-desktop-schemas #https://nixos.org/manual/nixpkgs/unstable/#ssec-gnome-common-issues
           xorg.libxcb
           gtk3.dev
+          gtk4
           pkg-config
 
           libGL
-          libxkbcommon
-          wayland
           xorg.libX11
           xorg.libXcursor
           xorg.libXi
           xorg.libXrandr
           xorg.libxcb
           fontconfig
-        ];
+        ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isUnix [
+					libxkbcommon
+				] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+					wayland
+ 				];
         runtimeDependencies = with pkgs; [
-        	wayland
           libGL
-          libxkbcommon
+        ]++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isUnix [
+					libxkbcommon
+				] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+        	wayland
+          libappindicator
         ];
         app = pkgs.rustPlatform.buildRustPackage {
 					name = manifest.name;
@@ -48,19 +54,28 @@
 					src = pkgs.lib.cleanSource ./.;
 					cargoLock = {
 						lockFile = ./Cargo.lock;
+						outputHashes = {
+								 "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
+								 "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+						};
 					};
 					doCheck = true;
 
 					nativeBuildInputs = [
 						pkgs.autoPatchelfHook
 						pkgs.wrapGAppsHook3
+						pkgs.copyDesktopItems
 						pkgs.rust-bin.stable.latest.minimal
+						pkgs.pkg-config
 					];
 
 					runtimeDependencies = runtimeDependencies;
 
 					buildInputs = with pkgs; [
 					] ++ commonBuildInputs;
+
+				  #FIXME(tray-icon): Darwin has is known broken compilation for tray-icon: https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
+					buildFeatures = [] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
 
 					desktopItems =
 					let
@@ -69,11 +84,16 @@
 							desktopName = "DexProtectOscRs";
 							exec = manifest.name;
 							categories = [
-								"Game"
 								"Utility"
 							];
+							icon = "dex_protect_osc_rs";
 						};
 					in [ item ];
+
+					postInstall = ''
+						mv images/app.png images/dex_protect_osc_rs.png
+						install -Dm644 -t $out/share/icons images/dex_protect_osc_rs.png
+					'';
 
 					meta = {
 						description = "Open-Source Implementation of the accompanying app for DexProtect";
@@ -93,7 +113,7 @@
             #        '';
             #      }))
 #						license = pkgs.lib.licenses.unfreeRedistributable; #Technically this is unfree redistributable, but I don't wanna build my nixos impure every-time.
-						platforms = pkgs.lib.platforms.linux ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
+						platforms = pkgs.lib.platforms.unix ++ pkgs.lib.platforms.windows ++ pkgs.lib.platforms.darwin;
 						mainProgram = manifest.name;
 					};
 				};
@@ -119,9 +139,16 @@
             #rustc
             #rustfmt
             tokei
-          ] ++ commonBuildInputs;
+            #windows cross-building
+            pkgsCross.mingwW64.stdenv.cc
+            pkgsCross.mingwW64.windows.pthreads
+          ] ++ commonBuildInputs ++ runtimeDependencies ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+						heaptrack
+            #linux tray stuff
+            xdotool
+					];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
-          LD_LIBRARY_PATH = lib.makeLibraryPath commonBuildInputs;
+          LD_LIBRARY_PATH = lib.makeLibraryPath (commonBuildInputs ++ runtimeDependencies);
           GIT_EXTERNAL_DIFF = "${difftastic}/bin/difft";
         };
       });

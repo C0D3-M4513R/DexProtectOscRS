@@ -1,5 +1,7 @@
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
+#[non_exhaustive]
+#[derive(Debug)]
 pub struct KeyValue<K,V> {
     pub key: K,
     pub value: V,
@@ -7,7 +9,7 @@ pub struct KeyValue<K,V> {
 
 impl<K, V> KeyValue<K, V> {
     #[inline]
-    pub(crate) fn new(key: K, value: V) -> KeyValue<K, V> {
+    pub(super) const fn new(key: K, value: V) -> KeyValue<K, V> {
         KeyValue { key, value}
     }
 }
