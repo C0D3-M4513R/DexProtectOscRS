@@ -101,6 +101,7 @@ impl<O, H: for<'a> ArbitraryHandler<&'a [&'a rosc::OscMessage], Output = O>> Arb
 }
 impl<O, H: for<'a> ArbitraryHandler<&'a [&'a rosc::OscMessage], Output = O>> crate::PeriodicParsingCheck for PacketHandler<H> {
     type CheckOutput = Vec<Vec<O>>;
+    fn needs_check(&self) -> bool { !self.bundle_buf.is_empty() }
     fn check(&mut self) -> Self::CheckOutput {
         let now = time::UtcDateTime::now();
         let to_apply = {

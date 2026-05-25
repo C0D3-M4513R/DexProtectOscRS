@@ -63,5 +63,8 @@ impl<H: crate::RawPacketHandler> ArbitraryHandler<&'_ [u8]> for BufferedRawPacke
 }
 impl<H: crate::RawPacketHandler + crate::PeriodicParsingCheck> crate::PeriodicParsingCheck for BufferedRawPacketHandler<H> {
     type CheckOutput = H::CheckOutput;
+    #[inline]
+    fn needs_check(&self) -> bool { self.handler.needs_check() }
+    #[inline]
     fn check(&mut self) -> Self::CheckOutput { self.handler.check() }
 }

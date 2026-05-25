@@ -63,7 +63,9 @@ impl osc_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
 
 impl osc_handler::PeriodicParsingCheck for MultiplexerOsc {
     type CheckOutput = ();
-
+    #[inline]
+    fn needs_check(&self) -> bool { false }
+    #[inline]
     fn check(&mut self) -> Self::CheckOutput { () }
 }
 

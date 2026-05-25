@@ -31,6 +31,9 @@ where
 {
     type CheckOutput = (H1::CheckOutput, H2::CheckOutput);
 
+    #[inline]
+    fn needs_check(&self) -> bool { self.handler1.needs_check() || self.handler2.needs_check() }
+    #[inline]
     fn check(&mut self) -> Self::CheckOutput {
         (self.handler1.check(), self.handler2.check())
     }
@@ -67,7 +70,9 @@ where
     H2: crate::PeriodicParsingCheck
 {
     type CheckOutput = (H1::CheckOutput, H2::CheckOutput);
-
+    #[inline]
+    fn needs_check(&self) -> bool { self.handler1.needs_check() || self.handler2.needs_check() }
+    #[inline]
     fn check(&mut self) -> Self::CheckOutput {
         (self.handler1.check(), self.handler2.check())
     }

@@ -17,6 +17,9 @@ pub trait ArbitraryHandler<T>{
 ///Checks something periodically (e.g. some parsed packets might want to be applied later)
 pub trait PeriodicParsingCheck {
     type CheckOutput;
+
+    /// Returns if [Self::check] needs to be run
+    fn needs_check(&self) -> bool { true }
     /// Checks something Periodically
     #[must_use]
     fn check(&mut self) -> Self::CheckOutput;

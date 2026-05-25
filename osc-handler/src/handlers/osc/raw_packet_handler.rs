@@ -36,6 +36,9 @@ impl<H: ArbitraryHandler<rosc::OscPacket> + crate::PeriodicParsingCheck> crate::
 }
 impl<H: ArbitraryHandler<rosc::OscPacket> + crate::PeriodicParsingCheck> crate::PeriodicParsingCheck for RawPacketHandler<H> {
     type CheckOutput = H::CheckOutput;
+    #[inline]
+    fn needs_check(&self) -> bool { self.handler.needs_check() }
+    #[inline]
     fn check(&mut self) -> Self::CheckOutput {
         self.handler.check()
     }

@@ -15,6 +15,7 @@ impl<O, T:RawPacketHandler<Output = O>> RawPacketHandler for Option<T> {
 }
 impl<T: PeriodicParsingCheck> PeriodicParsingCheck for Option<T> {
     type CheckOutput = Option<T::CheckOutput>;
+    fn needs_check(&self) -> bool { self.as_ref().map(|v|v.needs_check()).unwrap_or(false) }
     fn check(&mut self) -> Self::CheckOutput {
         self.as_mut().map(|v|v.check())
     }
@@ -31,6 +32,7 @@ impl crate::RawPacketHandler for core::convert::Infallible {
 }
 impl PeriodicParsingCheck for core::convert::Infallible {
     type CheckOutput = core::convert::Infallible;
+    fn needs_check(&self) -> bool { false }
     fn check(&mut self) -> Self::CheckOutput { *self }
 }
 //</editor-fold>

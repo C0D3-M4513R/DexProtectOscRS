@@ -121,7 +121,7 @@ impl<
                 buf.clear(); //This is strictly an Udp byte receive buffer. Additional Packet Parsing buffers exist further down the stack.
                 tokio::select! {
                     biased;
-                    _ = periodic.tick() => {
+                    _ = periodic.tick(), if handler.needs_check() => {
                         check_handler(handler.check(), &mut handler).await;
                     },
                     out = osc_recv.recv_buf(&mut buf) => {

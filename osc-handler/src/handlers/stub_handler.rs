@@ -11,6 +11,6 @@ impl<T> ArbitraryHandler<T> for StubHandler {
 }
 impl PeriodicParsingCheck for StubHandler {
     type CheckOutput = ();
-
+    fn needs_check(&self) -> bool { false }
     fn check(&mut self) -> Self::CheckOutput { () }
 }
