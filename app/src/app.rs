@@ -18,6 +18,7 @@ pub struct AppData{
     ip:String,
     path:String,
     dex_use_bundles: bool,
+    use_oscquery: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
     max_message_size: usize,
@@ -36,7 +37,8 @@ pub struct App<'a>{
     file_picker_thread: Option<tokio::task::JoinHandle<Option<PathBuf>>>,
 
     osc_multiplexer_port_popup: Option<Box<PopupFunc<'a>>>,
-    osc_thread: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    stop_osc: Option<tokio::sync::oneshot::Sender<()>>,
+    osc_thread: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -81,6 +83,7 @@ impl Default for AppData{
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
             dex_use_bundles: false,
+            use_oscquery: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
             max_message_size: crate::osc::OSC_RECV_BUFFER_SIZE,
@@ -98,6 +101,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
     fn try_from(value: &App<'a>) -> Result<Self, Self::Error> {
         Ok(OscCreateData{
+            use_oscquery: value.use_oscquery,
             ip: std::net::IpAddr::from_str(value.ip.as_str())?,
             recv_port: value.osc_recv_port,
             send_port: value.osc_send_port,
@@ -131,6 +135,20 @@ impl<'a> App<'a> {
         log::info!("You are running a release build. Some log statements were disabled.");
 
         let quit_mut = Arc::new(parking_lot::Mutex::new(false));
+
+        /*
+        {
+            let quit_mut = quit_mut.clone();
+            let cc = cc.egui_ctx.clone();
+            tokio::spawn(async move {
+                if let Err(err) = tokio::signal::ctrl_c().await {
+                    log::error!("Failed to listen for Ctrl-C: {err}");
+                }
+                *quit_mut.lock() = true;
+                cc.send_viewport_cmd(egui::ViewportCommand::Close);
+            });
+        }
+        */
 
         #[cfg(feature="tray")]
         let icon = {
@@ -172,12 +190,12 @@ impl<'a> App<'a> {
             icon
         };
 
-
         let mut slf = Self {
             collector,
             data,
             file_picker_thread: None,
             osc_multiplexer_port_popup: None,
+            stop_osc: None,
             osc_thread: None,
             osc_join_set: None,
             popups: Default::default(),
@@ -224,22 +242,47 @@ impl<'a> App<'a> {
         }));
     }
 
+    fn stop_osc(&mut self) -> Option<tokio::task::JoinHandle<anyhow::Result<()>>> {
+        log::info!("Stopping Osc Thread");
+        if let Some(osc_thread) = self.osc_thread.take() {
+            if self.stop_osc.take().map(|v|v.send(()).is_err()).unwrap_or(true)
+            {
+                osc_thread.abort();
+                log::info!("OSC Thread abort sent");
+            }
+            Some(osc_thread)
+        } else {
+            None
+        }
+    }
     fn spawn_osc_from_creation_data(&mut self){
         log::info!("Trying to connect to OSC on IP '{}'", self.osc_create_data.ip);
         let osc_create_data = self.osc_create_data.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.stop_osc = Some(tx);
         self.osc_thread = Some(self.runtime.spawn(async move {
-            let mut js = crate::osc::create_and_start_osc(&osc_create_data).await?;
-            log::info!("Successfully connected to OSC and started all Handlers.");
+            let js = crate::osc::create_and_start_osc(&osc_create_data, rx).await?;
+            let (mut js, mut rx) = match js {
+                None => return Ok(()),
+                Some(v) => v,
+            };
+
             loop{
-                match js.join_next().await {
-                    Some(Ok(_)) => {
-                        log::error!("Joined a Task that should never finish. This should never happen.\nIs there a bug in the rust language, or is the developer just stupid?");
-                    },
-                    Some(Err(e)) => {
-                        log::error!("Panic in OSC Thread: {}", e);
-                        return Err(std::io::Error::new(std::io::ErrorKind::Other,e))
-                    },
-                    None => return Ok(()),
+                tokio::select!{
+                    biased;
+                    _ = &mut rx => return Ok(()),
+                    i = js.join_next() => {
+                        match i {
+                            Some(Ok(_)) => {
+                                log::error!("Joined a Task that should never finish. This should never happen.\nIs there a bug in the rust language, or is the developer just stupid?");
+                            },
+                            Some(Err(e)) => {
+                                log::error!("Panic in OSC Thread: {}", e);
+                                return Err(anyhow::Error::new(e))
+                            },
+                            None => return Ok(()),
+                        }
+                    }
                 }
             }
         }));
@@ -248,29 +291,34 @@ impl<'a> App<'a> {
     fn check_osc_thread(&mut self){
         if let Some(osc_thread) = self.osc_thread.take() {
             if osc_thread.is_finished(){
-                match self.runtime.block_on(osc_thread){
-                    Ok(Ok(())) => {
-                        log::error!("OSC Thread finished unexpectedly");
-                        let time = Instant::now();
-                        self.popups.push_back(popup_creator(
-                            "OSC Thread Exited",
-                            move |_, ui| {
-                                ui.label("The OSC Thread (the one that communicates with VRChat) exited unexpectedly.");
-                                ui.label(format!("This happened {:.1} ago. (this updates only when you move your mouse or something changes)", time.elapsed().as_secs_f32()));
-                            })
-                        )
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("Error in OSC Thread: {}",e);
-                        self.handle_display_popup("Osc Error:", &e, "Error in Osc");
-                    }
-                    Err(e) => {
-                        log::error!("Panic in OSC Thread: {}", e);
-                        self.handle_join_error(&e, "Critical Error in Osc");
-                    }
-                }
+                log::error!("OSC Thread finished unexpectedly");
+                self.join_osc_thread(osc_thread, false);
             }else{
                 self.osc_thread = Some(osc_thread);
+            }
+        }
+    }
+    fn join_osc_thread(&mut self, osc_thread: tokio::task::JoinHandle<anyhow::Result<()>>, expect_exit: bool) {
+        match self.runtime.block_on(osc_thread){
+            Ok(Ok(())) => {
+                log::info!("OSC Thread finished");
+                if expect_exit {return;}
+                let time = Instant::now();
+                self.popups.push_back(popup_creator(
+                    "OSC Thread Exited",
+                    move |_, ui| {
+                        ui.label("The OSC Thread (the one that communicates with VRChat) exited unexpectedly.");
+                        ui.label(format!("This happened {:.1} ago. (this updates only when you move your mouse or something changes)", time.elapsed().as_secs_f32()));
+                    })
+                )
+            }
+            Ok(Err(e)) => {
+                log::warn!("Error in OSC Thread: {}",e);
+                self.handle_display_popup("Osc Error:", &e, "Error in Osc");
+            }
+            Err(e) => {
+                log::error!("Panic in OSC Thread: {}", e);
+                self.handle_join_error(&e, "Critical Error in Osc");
             }
         }
     }
@@ -278,7 +326,7 @@ impl<'a> App<'a> {
         ui.heading("DexProtect:");
         ui.horizontal(|ui|{
             ui.checkbox(&mut self.dex_use_bundles, "Use Osc Bundles: ");
-            ui.hyperlink_to("This is known to cause issues with VRChat.", "https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages");
+            ui.hyperlink_to("This is known to cause issues with VRChat and to NOT WORK.", "https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages");
         });
         ui.horizontal(|ui|{
             ui.label("Keys Folder: ");
@@ -380,22 +428,31 @@ impl<'a> App<'a> {
 
         ui.heading("Generic Osc Controls:");
         ui.horizontal(|ui|{
-            ui.label("IP:");
-            ui.text_edit_singleline(&mut self.ip);
+            ui.checkbox(&mut self.use_oscquery, "Use OscQuery: ");
+            ui.label("OscQuery is known to have several deficiencies.");
+            ui.hyperlink_to("Issue #1", "https://vrchat.canny.io/bug-reports/p/oscquery-json-ghost-parameters");
+            ui.hyperlink_to("Issue #2", "https://vrchat.canny.io/bug-reports/p/oscquery-not-properly-filtering-data");
+            ui.hyperlink_to("Issue #3", "https://vrchat.canny.io/bug-reports/p/oscquery-provides-wrong-values-for-avatar-parameters-until-they-are-changed");
         });
-        ui.horizontal(|ui|{
-            ui.label("OSC Receive Port:");
-            ui.add(egui::DragValue::new(&mut self.osc_recv_port));
-            if ui.button("Reset to Default").clicked() {
-                self.osc_recv_port = crate::osc::OSC_RECV_PORT;
-            }
-        });
-        ui.horizontal(|ui|{
-            ui.label("OSC Send Port:");
-            ui.add(egui::DragValue::new(&mut self.osc_send_port));
-            if ui.button("Reset to Default").clicked() {
-                self.osc_send_port = crate::osc::OSC_SEND_PORT;
-            }
+        ui.add_enabled_ui(!self.use_oscquery, |ui|{
+            ui.horizontal(|ui|{
+                ui.label("IP:");
+                ui.text_edit_singleline(&mut self.ip);
+            });
+            ui.horizontal(|ui|{
+                ui.label("OSC Receive Port:");
+                ui.add(egui::DragValue::new(&mut self.osc_recv_port));
+                if ui.button("Reset to Default").clicked() {
+                    self.osc_recv_port = crate::osc::OSC_RECV_PORT;
+                }
+            });
+            ui.horizontal(|ui|{
+                ui.label("OSC Send Port:");
+                ui.add(egui::DragValue::new(&mut self.osc_send_port));
+                if ui.button("Reset to Default").clicked() {
+                    self.osc_send_port = crate::osc::OSC_SEND_PORT;
+                }
+            });
         });
         ui.horizontal(|ui|{
             ui.label("Osc Max Message Size:");
@@ -410,10 +467,8 @@ impl<'a> App<'a> {
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
         ui.horizontal(|ui|{
             if ui.button(if self.osc_thread.is_some() {"Reconnect"} else {"Connect"}).clicked() {
-                if let Some(osc_thread) = self.osc_thread.take(){
-                    log::info!("OSC Thread is already running and a Reconnect was requested. Aborting OSC thread.");
-                    osc_thread.abort();
-                    log::info!("OSC Thread aborted");
+                if let Some(thread) = self.stop_osc() {
+                    self.join_osc_thread(thread, true);
                 }
                 match OscCreateData::try_from(&*self) {
                     Ok(osc_create_data) => {
@@ -427,11 +482,7 @@ impl<'a> App<'a> {
                 }
             }
             if self.osc_thread.is_some() && ui.button("Disconnect").clicked() {
-                if let Some(osc_thread) = self.osc_thread.take(){
-                    log::info!("OSC Thread is already running and a Disconnect was requested. Aborting OSC thread.");
-                    osc_thread.abort();
-                    log::info!("OSC Thread aborted");
-                }
+                self.stop_osc();
             }
             ui.checkbox(&mut self.auto_connect_launch, "Auto-Connect on Launch");
         });

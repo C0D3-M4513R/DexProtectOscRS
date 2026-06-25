@@ -16,7 +16,7 @@ impl MultiplexerOsc{
         for port in forward_ports {
             js.spawn(async move {
                 log::info!("About to Bind OSC UDP receive Socket to {}:{}", ip,port);
-                match OscSender::new(ip,port).await{
+                match OscSender::new_osc(ip,port).await{
                     Ok(v) => Ok(v),
                     Err(e) => {
                         log::warn!("Failed to Bind and/or connect the OSC UDP receive socket: {}", e);
@@ -45,13 +45,13 @@ impl MultiplexerOsc{
     }
 }
 
-impl network_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
+impl network_handler::ArbitraryHandler<rosc::OscPacket, core::net::SocketAddr> for MultiplexerOsc {
     type Output = Result<Vec<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
-    fn handle(&mut self, message: rosc::OscPacket) -> Self::Output {
+    fn handle(&mut self, message: rosc::OscPacket, info: core::net::SocketAddr) -> Self::Output {
         match rosc::encoder::encode(&message) {
             Ok(v) => {
                 let v = Arc::<[u8]>::from(v);
-                Ok(self.forward_sockets.iter().map(|socket|socket.send_raw_packet(v.clone())).collect())
+                Ok(self.forward_sockets.iter().map(|socket|socket.send_raw_packet(v.clone(), info)).collect())
             }
             Err(err) => {
                 log::error!("Failed to encode a OSC Message: {err}, Packet was: {message:#?}");
@@ -69,10 +69,10 @@ impl network_handler::PeriodicParsingCheck for MultiplexerOsc {
     fn check(&mut self) -> Self::CheckOutput { () }
 }
 
-impl network_handler::ArbitraryHandler<&'_ [u8]> for MultiplexerOsc {
+impl network_handler::ArbitraryHandler<&'_ [u8], core::net::SocketAddr> for MultiplexerOsc {
     type Output = Vec<RawSendMessage<Arc<[u8]>>>;
-    fn handle(&mut self, message: &'_[u8]) -> Self::Output {
+    fn handle(&mut self, message: &'_[u8], info: core::net::SocketAddr) -> Self::Output {
         let buf = Arc::<[_]>::from(message);
-        self.forward_sockets.iter().map(|socket|socket.send_raw_packet(buf.clone())).collect()
+        self.forward_sockets.iter().map(|socket|socket.send_raw_packet(buf.clone(), info)).collect()
     }
 }

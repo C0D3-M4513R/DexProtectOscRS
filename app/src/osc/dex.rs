@@ -9,6 +9,7 @@ use aes::cipher::{BlockModeDecrypt, KeyIvInit};
 use egui::mutex::Mutex;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use unicode_bom::Bom;
+use vrchat_osc::models::{OscValue};
 use super::OscSender;
 use super::OscCreateData;
 
@@ -19,12 +20,12 @@ const DEX_KEY_WAIT_DESC:&'static str = "1.5 seconds";
 pub(super) struct DexOscHandler {
     path: Arc<std::path::Path>,
     dex_use_bundles: bool,
-    osc: Arc<OscSender>,
+    osc: OscSender,
     params: Arc<Mutex<Option<(tokio::task::AbortHandle, HashMap<String, OscType>)>>>,
 }
 
 impl DexOscHandler {
-    pub fn new(osc_create_data: &OscCreateData, osc: Arc<OscSender>) -> Self {
+    pub fn new(osc_create_data: &OscCreateData, osc: OscSender) -> Self {
         Self {
             path: Arc::from(osc_create_data.path.clone()),
             dex_use_bundles: osc_create_data.dex_use_bundles,
@@ -37,12 +38,12 @@ impl DexOscHandler {
 #[cfg(feature = "compile_time_key_include")]
 static KEYS: phf::Map<&'static str, &'static [u8]> = ::app_macro::include_tree!("../../../keys");
 
-impl osc_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage]> for DexOscHandler
+impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::SocketAddr> for DexOscHandler
 {
     type Output = Vec<Pin<Box<dyn Future<Output = ()> + Send>>>;
-    fn handle(&mut self, message: &'_ [&'_ rosc::OscMessage]) -> Self::Output {
+    fn handle(&mut self, message: &'_ [&'_ rosc::OscMessage], extra_info: core::net::SocketAddr) -> Self::Output {
         message.into_iter().filter_map(|message|{
-            if message.addr.eq_ignore_ascii_case("/avatar/change") {
+            if message.addr.eq_ignore_ascii_case(super::VRCHAT_AVATAR_CHANGE) {
                 let mut id = None;
                 for i in &message.args{
                     match i {
@@ -63,7 +64,7 @@ impl osc_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage]> for DexOscHandler
                 if let Some(id) = id {
                     log::info!("Got Avatar Change to {id}");
                     let clone = self.clone();
-                    return Some(Box::pin(clone.handle_avatar_change(Arc::from(id.as_str()))) as Pin<Box<dyn Future<Output = ()> + Send>>);
+                    return Some(Box::pin(clone.handle_avatar_change_osc(Arc::from(id.as_str()), extra_info)) as Pin<Box<dyn Future<Output = ()> + Send>>);
                 }else{
                     log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.");
                 }
@@ -129,7 +130,34 @@ impl osc_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage]> for DexOscHandler
 }
 
 impl DexOscHandler {
-    async fn handle_avatar_change(self, id: Arc<str>) {
+    async fn handle_avatar_change_osc(self, id: Arc<str>, _: core::net::SocketAddr) {
+        let names = match &self.osc{
+            OscSender::OscQuery { query, ..} => {
+                match query.get_parameter(super::VRCHAT_AVATAR_CHANGE, super::ALL_VRCHAT_CLIENTS).await {
+                    Ok(v) => Some(v.into_iter()
+                        .filter_map(|(name, node)|{
+                            match node.value.unwrap_or_default().get(0) {
+                                Some(OscValue::String(v)) => {
+                                    if v.as_str() == id.as_ref() {
+                                        Some(Arc::<str>::from(name))
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None
+                            }
+                        }).collect()),
+                    Err(err) => {
+                        log::warn!("Failed to get current avatar information from vrchat clients: {err}");
+                        return;
+                    }
+                }
+            }
+            _ => None
+        };
+        self.handle_avatar_change(id, names, true).await
+    }
+    pub async fn handle_avatar_change(self, id: Arc<str>, names: Option<Arc<[Arc<str>]>>, do_detect: bool) {
         let potentially_decrypted = {
             #[cfg(feature = "compile_time_key_include")]
             {
@@ -180,6 +208,7 @@ impl DexOscHandler {
         decoded = decoded.replace(",", ".");
         #[cfg(all(debug_assertions, feature="debug_log"))]
         log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
+        // #[cfg(not(windows))] //Todo: Is this all os's aside from windows or just a unix/linux thing?
         let decoded = if let Some(new) = decoded.strip_suffix("\x02\x02") {
             #[cfg(all(debug_assertions, feature="debug_log"))] //TODO: Why does this happen?
             log::warn!("Keyfile has a suspicious 0x0202 at the end of the keyfile. Removing.");
@@ -242,36 +271,30 @@ impl DexOscHandler {
                     args: vec![type_],
                 }));
             }else {
-                if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Message(OscMessage{
+                let osc = self.osc.clone();
+                js.spawn(osc.send(OscPacket::Message(OscMessage{
                     addr: string.clone(),
                     args: vec![type_],
-                })) {
-                    js.spawn(v);
-                };
+                }), names.clone()));
             }
             i+=2;
         }
         if self.dex_use_bundles {
             log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
-            if let Ok(v) = self.osc.send_message_with_logs(&OscPacket::Bundle(OscBundle{
+            let osc = self.osc.clone();
+            js.spawn(osc.send(OscPacket::Bundle(OscBundle{
                 timetag: rosc::OscTime{
                     seconds: 0,
                     fractional: 1
                 },
                 content: key
-            })){
-                js.spawn(v);
-            };
+            }), names.clone()));
         }
         while let Some(v) = js.join_next().await {
             match v{
-                Ok((Ok(v), buf)) => {
-                    if v != buf.len() {
-                        log::warn!("Sent less bytes than were queued (sent {v} bytes, queued {} bytes)", buf.len());
-                    }
-                }
-                Ok((Err(err), buf)) => {
-                    log::error!("Failed to send {} bytes: {err}", buf.len());
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => {
+                    log::error!("Failed to send osc message: {err}");
                 }
                 Err(err) => {
                     log::error!("Panicked whilst sending data: {err}");
@@ -279,6 +302,7 @@ impl DexOscHandler {
             }
         }
         log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
+        if !do_detect { return; }
         params.shrink_to_fit();
         let params_clone = self.params.clone();
         let jh = tokio::task::spawn(async move {
