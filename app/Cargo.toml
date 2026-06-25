@@ -59,7 +59,7 @@ parking_lot = "0.12.5"
 futures = "0.3"
 
 #osc
-vrchat_osc = {path = "../../vrchat_osc"}
+vrchat_osc = {version = "2.2.0", registry = "forgejo-code-rust"}
 rosc = "0.11.4"
 nom = "7.0.0"
 network-handler = {version = "0.2.0", registry = "forgejo-code-rust", features = ["tokio"]}
