@@ -45,7 +45,7 @@ impl MultiplexerOsc{
     }
 }
 
-impl osc_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
+impl network_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
     type Output = Result<Vec<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
     fn handle(&mut self, message: rosc::OscPacket) -> Self::Output {
         match rosc::encoder::encode(&message) {
@@ -61,7 +61,7 @@ impl osc_handler::ArbitraryHandler<rosc::OscPacket> for MultiplexerOsc {
     }
 }
 
-impl osc_handler::PeriodicParsingCheck for MultiplexerOsc {
+impl network_handler::PeriodicParsingCheck for MultiplexerOsc {
     type CheckOutput = ();
     #[inline]
     fn needs_check(&self) -> bool { false }
@@ -69,7 +69,7 @@ impl osc_handler::PeriodicParsingCheck for MultiplexerOsc {
     fn check(&mut self) -> Self::CheckOutput { () }
 }
 
-impl osc_handler::ArbitraryHandler<&'_ [u8]> for MultiplexerOsc {
+impl network_handler::ArbitraryHandler<&'_ [u8]> for MultiplexerOsc {
     type Output = Vec<RawSendMessage<Arc<[u8]>>>;
     fn handle(&mut self, message: &'_[u8]) -> Self::Output {
         let buf = Arc::<[_]>::from(message);

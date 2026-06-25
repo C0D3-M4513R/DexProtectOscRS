@@ -2,14 +2,12 @@
 members = [
     "app",
     "app_macro",
-    "osc-handler"
 ]
 resolver = "3"
 
 [profile.release]
 strip = true
 lto = true
-
 
 #ref. https://github.com/tauri-apps/muda/pull/341
 [patch.crates-io]
