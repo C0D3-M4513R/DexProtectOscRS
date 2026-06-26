@@ -66,10 +66,10 @@ impl DexOscHandler {
 #[cfg(feature = "compile_time_key_include")]
 static KEYS: phf::Map<&'static str, &'static [u8]> = ::app_macro::include_tree!("../../../keys");
 
-impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::SocketAddr> for DexOscHandler
+impl<I> network_handler::ArbitraryHandler<&'_ [&'_ OscMessage], I> for DexOscHandler
 {
     type Output = Vec<Pin<Box<dyn Future<Output = ()> + Send>>>;
-    fn handle(&mut self, message: &'_ [&'_ rosc::OscMessage], extra_info: core::net::SocketAddr) -> Self::Output {
+    fn handle(&mut self, message: &'_ [&'_ OscMessage], _: I) -> Self::Output {
         message.into_iter().filter_map(|message|{
             if message.addr.eq_ignore_ascii_case(super::VRCHAT_AVATAR_CHANGE) {
                 let mut id = None;
@@ -92,7 +92,7 @@ impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::So
                 if let Some(id) = id {
                     log::info!("Got Avatar Change to {id}");
                     let clone = self.clone();
-                    return Some(Box::pin(clone.handle_avatar_change_osc(Arc::from(id.as_str()), extra_info)) as Pin<Box<dyn Future<Output = ()> + Send>>);
+                    return Some(Box::pin(clone.handle_avatar_change_osc(Arc::from(id.as_str()))) as Pin<Box<dyn Future<Output = ()> + Send>>);
                 }else{
                     log::error!("No avatar id was found for the '/avatar/change' message. This is unexpected and might be a change to VRChat's OSC messages.");
                 }
@@ -163,7 +163,7 @@ impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::So
 }
 
 impl DexOscHandler {
-    async fn handle_avatar_change_osc(self, id: Arc<str>, _: core::net::SocketAddr) {
+    async fn handle_avatar_change_osc(self, id: Arc<str>) {
         let names = match &self.osc{
             #[cfg(feature = "oscquery")]
             OscSender::OscQuery { query, ..} => {
@@ -238,7 +238,7 @@ impl DexOscHandler {
         };
         #[cfg(all(debug_assertions, feature="debug_log"))]
         log::debug!("Decoded Avatar id '{}' Key file: '{}'", id, decoded);
-        let mut key:Vec<rosc::OscPacket> = Vec::new();
+        let mut key:Vec<OscPacket> = Vec::new();
         decoded = decoded.replace(",", ".");
         #[cfg(all(debug_assertions, feature="debug_log"))]
         log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
@@ -259,7 +259,6 @@ impl DexOscHandler {
         };
         let mut i = 0;
         let mut params = HashMap::with_capacity(len);
-        let mut js = tokio::task::JoinSet::new();
         while i < len {
             let string = format!("/avatar/parameters/{}", split[i+1]);
             let type_;
@@ -306,17 +305,20 @@ impl DexOscHandler {
             key.push(msg);
             i+=2;
         }
-        send_key(&mut js, self.osc.clone(), &key, names.clone(), self.dex_use_bundles);
-        wait_all_js(&mut js).await;
+        {
+            let mut js = tokio::task::JoinSet::new();
+            send_key(&mut js, self.osc.clone(), key, names.clone(), self.dex_use_bundles);
+            wait_all_js(&mut js).await;
+        }
         log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
         if !do_detect { return; }
         params.shrink_to_fit();
         let params_clone = self.params.clone();
         let jh = tokio::task::spawn(async move {
-            #[cfg(feature = "oscquery")]
             let mut js = tokio::task::JoinSet::new();
             for i in 1..=DEX_KEY_WAIT_RETRIES {
                 tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
+                let mut key = Vec::new();
                 {
                     let params = params_clone.lock();
                     let params_ref = match &*params {
@@ -333,6 +335,13 @@ impl DexOscHandler {
                         return;
                     }
 
+                    for (name, type_) in params_ref {
+                        key.push(OscPacket::Message(OscMessage{
+                            addr: name.clone(),
+                            args: vec![type_.clone()],
+                        }))
+                    }
+
                     let len = params_ref.len();
                     #[cfg(all(debug_assertions, feature="debug_log"))]
                     {
@@ -346,22 +355,21 @@ impl DexOscHandler {
                         log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {len} avatar keys, that were not applied.");
                     }
                 }
-                #[cfg(feature = "oscquery")]
-                {
-                    if self.osc.is_oscquery() {
-                        send_key(&mut js, self.osc.clone(), &key, names.clone(), self.dex_use_bundles);
-                        wait_all_js(&mut js).await;
-                    }
+
+                if !key.is_empty() {
+                    send_key(&mut js, self.osc.clone(), key, names.clone(), self.dex_use_bundles);
+                    wait_all_js(&mut js).await;
                 }
             }
             *params_clone.lock() = None;
             log::error!("Giving up on unlocking after {DEX_KEY_MAX_WAIT_DESC}.");
         });
         *self.params.lock() = Some((jh.abort_handle(), params));
+        log::debug!("Initial Avatar Change handling done")
     }
 }
 
-fn send_key(js: &mut tokio::task::JoinSet<anyhow::Result<()>>, osc: OscSender, key: &Vec<OscPacket>, names: Option<Arc<[Arc<str>]>>, use_bundles: bool) {
+fn send_key(js: &mut tokio::task::JoinSet<anyhow::Result<()>>, osc: OscSender, key: Vec<OscPacket>, names: Option<Arc<[Arc<str>]>>, use_bundles: bool) {
     if use_bundles {
         log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
         js.spawn(osc.send(OscPacket::Bundle(OscBundle{
@@ -374,7 +382,7 @@ fn send_key(js: &mut tokio::task::JoinSet<anyhow::Result<()>>, osc: OscSender, k
     } else {
         for msg in key {
             let osc = osc.clone();
-            js.spawn(osc.send(msg.clone(), names.clone()));
+            js.spawn(osc.send(msg, names.clone()));
         }
     }
 }

@@ -1,57 +1,32 @@
-use std::net::IpAddr;
 use std::sync::Arc;
+use crate::osc::OscSender;
 use crate::osc::sender::RawSendMessage;
-use super::OscSender;
 
-#[derive(Clone)]
 pub(super) struct MultiplexerOsc {
-    forward_sockets: Arc<[OscSender]>,
+    forward_ports: Box<[core::net::SocketAddr]>,
+    sender: OscSender,
 }
 
 impl MultiplexerOsc{
-    pub async fn new(ip: IpAddr, mut forward_ports: Vec<u16>) -> std::io::Result<Self> {
-        forward_ports.dedup();
-        let mut forward_sockets = Vec::new();
-        let mut js = tokio::task::JoinSet::new();
-        for port in forward_ports {
-            js.spawn(async move {
-                log::info!("About to Bind OSC UDP receive Socket to {}:{}", ip,port);
-                match OscSender::new_osc(ip,port).await{
-                    Ok(v) => Ok(v),
-                    Err(e) => {
-                        log::warn!("Failed to Bind and/or connect the OSC UDP receive socket: {}", e);
-                        Err(e)
-                    }
-                }
-            });
-        }
-        loop{
-            match js.join_next().await{
-                Some(Ok(Ok(v))) => forward_sockets.push(v),
-                Some(Ok(Err(err))) => {
-                    log::warn!("Failed to Bind the OSC UDP receive socket: {}", err);
-                    return Err(err)
-                }
-                Some(Err(e)) => {
-                    log::error!("Critical Error while binding OSC UDP receive socket: {}", e);
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, e))
-                }
-                None => break,
-            }
-        }
+    pub async fn new(sender: OscSender, forward_ports: &Vec<core::net::SocketAddr>) -> std::io::Result<Self> {
         Ok(Self{
-            forward_sockets: Arc::from(forward_sockets),
+            forward_ports: Box::from(forward_ports.as_slice()),
+            sender,
         })
     }
 }
 
-impl network_handler::ArbitraryHandler<rosc::OscPacket, core::net::SocketAddr> for MultiplexerOsc {
+impl<I> network_handler::ArbitraryHandler<rosc::OscPacket, I> for MultiplexerOsc {
     type Output = Result<Vec<RawSendMessage<Arc<[u8]>>>, rosc::OscError>;
-    fn handle(&mut self, message: rosc::OscPacket, info: core::net::SocketAddr) -> Self::Output {
+    fn handle(&mut self, message: rosc::OscPacket, _: I) -> Self::Output {
         match rosc::encoder::encode(&message) {
             Ok(v) => {
                 let v = Arc::<[u8]>::from(v);
-                Ok(self.forward_sockets.iter().map(|socket|socket.send_raw_packet(v.clone(), info)).collect())
+                Ok(
+                    self.forward_ports
+                        .iter()
+                        .map(|socket|self.sender.send_raw_packet(v.clone(), Some(*socket)))
+                        .collect())
             }
             Err(err) => {
                 log::error!("Failed to encode a OSC Message: {err}, Packet was: {message:#?}");
@@ -69,10 +44,13 @@ impl network_handler::PeriodicParsingCheck for MultiplexerOsc {
     fn check(&mut self) -> Self::CheckOutput { () }
 }
 
-impl network_handler::ArbitraryHandler<&'_ [u8], core::net::SocketAddr> for MultiplexerOsc {
+impl<I> network_handler::ArbitraryHandler<&'_ [u8], I> for MultiplexerOsc {
     type Output = Vec<RawSendMessage<Arc<[u8]>>>;
-    fn handle(&mut self, message: &'_[u8], info: core::net::SocketAddr) -> Self::Output {
+    fn handle(&mut self, message: &'_[u8], _: I) -> Self::Output {
         let buf = Arc::<[_]>::from(message);
-        self.forward_sockets.iter().map(|socket|socket.send_raw_packet(buf.clone(), info)).collect()
+        self.forward_ports
+            .iter()
+            .map(|socket|self.sender.send_raw_packet(buf.clone(), Some(*socket)))
+            .collect()
     }
 }

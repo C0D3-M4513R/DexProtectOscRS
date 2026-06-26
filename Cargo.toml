@@ -12,3 +12,7 @@ lto = true
 #ref. https://github.com/tauri-apps/muda/pull/341
 [patch.crates-io]
 muda = {version = "0.17.1", git = "https://github.com/rmakestrash-jpg/muda.git", rev = "350b9bda3eabd7327e1a2592019cd33e7f559d44"}
+
+#[patch.forgejo-code-rust]
+#network-handler = {path = "../network-handler"}
+#vrchat_osc = {path = "../vrchat_osc"}

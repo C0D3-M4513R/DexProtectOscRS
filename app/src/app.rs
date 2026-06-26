@@ -15,18 +15,19 @@ use crate::osc::OscCreateData;
 pub struct AppData{
     logs_visible: bool,
     auto_connect_launch: bool,
-    ip:String,
     path:String,
     dex_use_bundles: bool,
     #[cfg(feature = "oscquery")]
     use_oscquery: bool,
+    recv_ip:String,
     osc_recv_port: u16,
+    send_ip:String,
     osc_send_port: u16,
     max_message_size: usize,
     osc_multiplexer_enabled: bool,
     osc_multiplexer_parse_packets: bool,
     dex_protect_enabled: bool,
-    osc_multiplexer_rev_port: Vec<u16>,
+    osc_multiplexer_sockets: Vec<(String, u16)>,
     osc_create_data: OscCreateData,
 }
 
@@ -82,18 +83,19 @@ impl Default for AppData{
         Self{
             logs_visible: false,
             auto_connect_launch: true,
-            ip:"127.0.0.1".to_string(),
             path: "".to_string(),
             dex_use_bundles: false,
             #[cfg(feature = "oscquery")]
             use_oscquery: false,
+            recv_ip:"0.0.0.0".to_string(),
             osc_recv_port: crate::osc::OSC_RECV_PORT,
+            send_ip:"127.0.0.1".to_string(),
             osc_send_port: crate::osc::OSC_SEND_PORT,
             max_message_size: crate::osc::OSC_RECV_BUFFER_SIZE,
             osc_multiplexer_enabled: false,
             osc_multiplexer_parse_packets: false,
             dex_protect_enabled: true,
-            osc_multiplexer_rev_port: Vec::new(),
+            osc_multiplexer_sockets: Vec::new(),
             osc_create_data: OscCreateData::default(),
         }
     }
@@ -106,14 +108,19 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
         Ok(OscCreateData{
             #[cfg(feature = "oscquery")]
             use_oscquery: value.use_oscquery,
-            ip: std::net::IpAddr::from_str(value.ip.as_str())?,
-            recv_port: value.osc_recv_port,
-            send_port: value.osc_send_port,
+            recv: std::net::SocketAddr::new(std::net::IpAddr::from_str(value.recv_ip.as_str())?, value.osc_recv_port),
+            send: std::net::SocketAddr::new(std::net::IpAddr::from_str(value.send_ip.as_str())?, value.osc_send_port),
             max_message_size: value.max_message_size,
             dex_protect_enabled: value.dex_protect_enabled,
             dex_use_bundles: value.dex_use_bundles,
             path: PathBuf::from(&value.path),
-            osc_multiplexer_rev_port: if value.osc_multiplexer_enabled {value.osc_multiplexer_rev_port.clone()} else {Vec::new()},
+            osc_multiplexer_sockets: if value.osc_multiplexer_enabled {
+                let mut vec = Vec::with_capacity(value.osc_multiplexer_sockets.len());
+                for (ip, port) in &value.osc_multiplexer_sockets {
+                    vec.push(std::net::SocketAddr::new(std::net::IpAddr::from_str(ip.as_str())?, *port));
+                }
+                vec
+            } else {Vec::new()},
             osc_multiplexer_parse_packets: value.osc_multiplexer_parse_packets,
         })
     }
@@ -260,36 +267,11 @@ impl<'a> App<'a> {
         }
     }
     fn spawn_osc_from_creation_data(&mut self){
-        log::info!("Trying to connect to OSC on IP '{}'", self.osc_create_data.ip);
+        log::info!("Trying to connect to OSC on IP '{}'", self.osc_create_data.recv);
         let osc_create_data = self.osc_create_data.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.stop_osc = Some(tx);
-        self.osc_thread = Some(self.runtime.spawn(async move {
-            let js = crate::osc::create_and_start_osc(&osc_create_data, rx).await?;
-            let (mut js, mut rx) = match js {
-                None => return Ok(()),
-                Some(v) => v,
-            };
-
-            loop{
-                tokio::select!{
-                    biased;
-                    _ = &mut rx => return Ok(()),
-                    i = js.join_next() => {
-                        match i {
-                            Some(Ok(_)) => {
-                                log::error!("Joined a Task that should never finish. This should never happen.\nIs there a bug in the rust language, or is the developer just stupid?");
-                            },
-                            Some(Err(e)) => {
-                                log::error!("Panic in OSC Thread: {}", e);
-                                return Err(anyhow::Error::new(e))
-                            },
-                            None => return Ok(()),
-                        }
-                    }
-                }
-            }
-        }));
+        self.osc_thread = Some(self.runtime.spawn(crate::osc::create_and_start_osc(osc_create_data, rx)));
     }
 
     fn check_osc_thread(&mut self){
@@ -392,22 +374,25 @@ impl<'a> App<'a> {
         if ui.add_enabled(self.osc_multiplexer_port_popup.is_none(), egui::Button::new("Manage Ports")).clicked() {
             self.osc_multiplexer_port_popup = Some(popup_creator_collapsible("Osc Multiplexer Ports:", true, |app, ui|{
                 let mut i = 0;
-                while i < app.osc_multiplexer_rev_port.len(){
+                while i < app.osc_multiplexer_sockets.len(){
                     ui.horizontal(|ui|{
+                        let (ip, port) = app.osc_multiplexer_sockets.index_mut(i);
+                        ui.label(format!("Osc Forward Ip {}: ", i));
+                        ui.text_edit_singleline(ip);
                         ui.label(format!("Osc Forward Port {}: ", i));
-                        ui.add(egui::DragValue::new(app.osc_multiplexer_rev_port.index_mut(i)));
+                        ui.add(egui::DragValue::new(port));
                         if ui.button("Delete")
                             .on_hover_text("Delete this Port from the list, and replaces it with the last one.")
                             .clicked()
                         {
-                            app.osc_multiplexer_rev_port.swap_remove(i);
+                            app.osc_multiplexer_sockets.swap_remove(i);
                         }
 
                     });
                     i+=1;
                 }
                 if ui.button("Add Port").clicked() {
-                    app.osc_multiplexer_rev_port.push(0);
+                    app.osc_multiplexer_sockets.push(("127.0.0.1".to_string(), 0));
                 }
             }));
         }
@@ -446,8 +431,8 @@ impl<'a> App<'a> {
 
         ui.add_enabled_ui(!oscquery, |ui|{
             ui.horizontal(|ui|{
-                ui.label("IP:");
-                ui.text_edit_singleline(&mut self.ip);
+                ui.label("Receive IP:");
+                ui.text_edit_singleline(&mut self.recv_ip);
             });
             ui.horizontal(|ui|{
                 ui.label("OSC Receive Port:");
@@ -455,6 +440,10 @@ impl<'a> App<'a> {
                 if ui.button("Reset to Default").clicked() {
                     self.osc_recv_port = crate::osc::OSC_RECV_PORT;
                 }
+            });
+            ui.horizontal(|ui|{
+                ui.label("Send IP:");
+                ui.text_edit_singleline(&mut self.send_ip);
             });
             ui.horizontal(|ui|{
                 ui.label("OSC Send Port:");
@@ -486,8 +475,8 @@ impl<'a> App<'a> {
                         self.spawn_osc_from_creation_data();
                     },
                     Err(e) => {
-                        log::error!("\"{}\" is not a valid IP-Address. Rust error: \"{}\"",self.ip,  e);
-                        self.handle_display_popup(format!("\"{}\" is not a valid IP-Address", self.ip),&e,"Error Parsing IP-Address")
+                        log::error!("\"{}\" is not a valid IP-Address. Rust error: \"{}\"",self.recv_ip,  e);
+                        self.handle_display_popup(format!("\"{}\" is not a valid IP-Address", self.recv_ip), &e, "Error Parsing IP-Address")
                     }
                 }
             }

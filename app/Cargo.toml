@@ -59,10 +59,11 @@ parking_lot = "0.12.5"
 futures = "0.3"
 
 #osc
-vrchat_osc = {version = "2.2.0", registry = "forgejo-code-rust", optional = true}
+vrchat_osc = {version = "3.0.0", registry = "forgejo-code-rust", optional = true}
 rosc = "0.11.4"
 nom = "7.0.0"
-network-handler = {version = "0.2.0", registry = "forgejo-code-rust", features = ["tokio"]}
+network-handler = {version = "0.3.0", registry = "forgejo-code-rust"}
+network-handler-listener-osc-tokio = {version = "0.1.0", registry = "forgejo-code-rust"}
 unicode-bom = "2"
 
 #cypher
@@ -85,4 +86,6 @@ compile_time_key_include = ["dep:phf"]
 
 oscquery = ["dep:vrchat_osc"]
 no_decryption_keys = []
-debug_log = ["network-handler/debug_log"]
+debug_log = []
+network_debug_log = ["network-handler/debug_log"]
+network_tokio_debug_log = ["network-handler-listener-osc-tokio/debug_log"]

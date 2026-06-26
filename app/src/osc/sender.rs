@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -10,42 +9,15 @@ use tokio::net::UdpSocket;
 
 #[derive(Clone)]
 pub enum OscSender {
-    OSC { osc_send: Arc<UdpSocket>, },
+    OSC {
+        osc_send: Arc<UdpSocket>,
+        send_location: core::net::SocketAddr,
+    },
     #[cfg(feature = "oscquery")]
     OscQuery { query: Arc<vrchat_osc::VRChatOSC> }
 }
-async fn bind_and_connect_udp(ip:IpAddr, bind_port:u16, connect_port:u16, way:&str) -> std::io::Result<UdpSocket> {
-    log::info!("About to Bind OSC UDP {} Socket on port {}", way,bind_port);
-    let udp_sock = UdpSocket::bind((ip,bind_port)).await?;
-    log::info!("Bound OSC UDP {} Socket. About to connect to {}:{}.", way,ip,connect_port);
-    udp_sock.connect((ip,connect_port)).await?;
-    log::info!("Connected OSC UDP {} Socket to {}:{}.", way,ip,connect_port);
-    Ok(udp_sock)
-}
 impl OscSender {
-    /// Creates a new OSC Sender.
-    /// This will bind a UDP Socket to a random port and connect it to the specified port on the specified ip.
-    /// The binding and the connection can both fail, so this function returns a Result.
-    pub async fn new_osc(ip:IpAddr,port:u16) -> Result<Self, std::io::Error>{
-        let osc_send = match bind_and_connect_udp(ip, 0, port,"send").await{
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("Failed to Bind and/or connect the OSC UDP send socket: {}", e);
-                Err(e)?
-            }
-        };
-        Ok(Self::OSC{
-            osc_send: Arc::new(osc_send),
-        })
-    }
-
-    #[cfg(feature = "oscquery")]
-    pub const fn is_oscquery(&self) -> bool {
-        matches!(self, Self::OscQuery {..})
-    }
-
     pub async fn send(self, packet: OscPacket, names: Option<Arc<[Arc<str>]>>) -> anyhow::Result<()> {
-
         #[cfg(all(debug_assertions, feature = "debug_log"))]
         log::debug!("Sending packet to destinations: {names:?}, packet: {packet:?}");
         let packet = rosc::encoder::encode(&packet)?;
@@ -58,12 +30,12 @@ impl OscSender {
                 log::error!("Got no name information, but we are a osc_query sender?");
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Got no name information, but we are a osc_query sender?").into())
             }
-            (Some(_), Self::OSC { osc_send }) => {
+            (Some(_), Self::OSC { osc_send, send_location }) => {
                 log::warn!("Ignoring OscQuery names, as we are an osc sender!");
-                osc_send.send(packet).await.map(|_|()).map_err(Into::into)
+                osc_send.send_to(packet, send_location).await.map(|_|()).map_err(Into::into)
             }
-            (None, Self::OSC {osc_send}) => {
-                osc_send.send(packet).await.map(|_|()).map_err(Into::into)
+            (None, Self::OSC {osc_send, send_location}) => {
+                osc_send.send_to(packet, send_location).await.map(|_|()).map_err(Into::into)
             }
             #[cfg(feature = "oscquery")]
             (Some(v), Self::OscQuery { query }) => {
@@ -96,11 +68,9 @@ impl OscSender {
             }
         }
     }
-    
-    pub fn send_raw_packet<A:AsRef<[u8]>>(&self, packet: A, #[cfg_attr(not(feature = "oscquery"), allow(unused_variables))] addr: core::net::SocketAddr) -> RawSendMessage<A> {
+    pub fn send_raw_packet<A:AsRef<[u8]>>(&self, packet: A, addr: Option<core::net::SocketAddr>) -> RawSendMessage<A> {
         RawSendMessage{
             message: core::cell::Cell::new(Some(packet)),
-            #[cfg(feature = "oscquery")]
             socket_addr: addr,
             sender: self.clone(),
         }
@@ -109,8 +79,7 @@ impl OscSender {
 
 pub struct RawSendMessage<A: AsRef<[u8]>> {
     message: core::cell::Cell<Option<A>>,
-    #[cfg(feature = "oscquery")]
-    socket_addr: core::net::SocketAddr,
+    socket_addr: Option<core::net::SocketAddr>,
     sender: OscSender,
 }
 impl<A: AsRef<[u8]>> RawSendMessage<A> {
@@ -119,8 +88,12 @@ impl<A: AsRef<[u8]>> RawSendMessage<A> {
         // The only way this can panic, is if the future resolves to Poll::Ready(Err(_)) and then gets polled again (1st expect)
         let message = self.message.take().expect("Future was polled again, after it was Ready");
         match &self.sender {
-            OscSender::OSC { osc_send } => {
-                let poll = osc_send.poll_send(cx, message.as_ref());
+            OscSender::OSC {
+                osc_send,
+                send_location
+            } => {
+                let addr = self.socket_addr.unwrap_or(*send_location);
+                let poll = osc_send.poll_send_to(cx, message.as_ref(), addr);
                 match poll {
                     Poll::Pending => {
                         self.message.set(Some(message));
@@ -132,15 +105,23 @@ impl<A: AsRef<[u8]>> RawSendMessage<A> {
             },
             #[cfg(feature = "oscquery")]
             OscSender::OscQuery { query } => {
-                //Todo: This path is incorrect!
-                log::error!("This message likely wont be received! Message sent to {}", self.socket_addr);
-                match query.poll_send_to_addr_raw(cx, message.as_ref(), self.socket_addr) {
-                    Poll::Pending => {
-                        self.message.set(Some(message));
-                        Poll::Pending
+                match self.socket_addr {
+                    None => {
+                        log::warn!("Did not specify a socket address for oscquery sender");
+                        Poll::Ready((Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Did not specify a socket address for oscquery sender").into()), message))
                     }
-                    Poll::Ready(Ok(v)) => Poll::Ready((Ok(v), message)),
-                    Poll::Ready(Err(err)) => Poll::Ready((Err(err.into()), message)),
+                    Some(socket_addr) => {
+                        //Todo: This path is incorrect!
+                        log::error!("This message likely wont be received! Message sent to {socket_addr}");
+                        match query.poll_send_to_addr_raw(cx, message.as_ref(), socket_addr) {
+                            Poll::Pending => {
+                                self.message.set(Some(message));
+                                Poll::Pending
+                            }
+                            Poll::Ready(Ok(v)) => Poll::Ready((Ok(v), message)),
+                            Poll::Ready(Err(err)) => Poll::Ready((Err(err.into()), message)),
+                        }
+                    }
                 }
             }
         }

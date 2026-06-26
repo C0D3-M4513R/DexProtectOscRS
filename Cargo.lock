@@ -1223,6 +1223,7 @@ dependencies = [
  "futures",
  "log",
  "network-handler",
+ "network-handler-listener-osc-tokio",
  "nom 7.1.3",
  "parking_lot",
  "phf 0.13.1",
@@ -1257,7 +1258,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1616,7 +1617,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2024,7 +2025,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3213,15 +3214,27 @@ dependencies = [
 
 [[package]]
 name = "network-handler"
-version = "0.2.0"
+version = "0.3.0"
 source = "sparse+https://gitea.c0d3m4513r.com/api/packages/Code-Rust/cargo/"
-checksum = "8f8538d25b6cb7a38cc727e7d58708a1789a3eeae9fd8b973742cb1971bed7f7"
+checksum = "ac97ea173a8338590b71d7d2b4dbb0dc7e548ae8b79de447092628f6b3b4454d"
 dependencies = [
  "log",
  "nom 7.1.3",
  "rosc",
  "sorted-vec",
  "time",
+]
+
+[[package]]
+name = "network-handler-listener-osc-tokio"
+version = "0.1.0"
+source = "sparse+https://gitea.c0d3m4513r.com/api/packages/Code-Rust/cargo/"
+checksum = "26e04a9f9aec96082b56376edb1cd254b3425d47a4cd409cba93725109962336"
+dependencies = [
+ "log",
+ "network-handler",
+ "nom 7.1.3",
+ "rosc",
  "tokio",
 ]
 
@@ -3277,7 +3290,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4483,7 +4496,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4814,7 +4827,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4913,7 +4926,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5308,7 +5321,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5451,9 +5464,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vrchat_osc"
-version = "2.2.1"
+version = "3.0.0"
 source = "sparse+https://gitea.c0d3m4513r.com/api/packages/Code-Rust/cargo/"
-checksum = "7cb4432c065d36901b1276994c8e493013efc6ef689e5a5d08f06f788a7703bc"
+checksum = "cb7517256bb7fc1f2c75d34d60bb9230318bb342cf8c8e578fa3b61faeed3c43"
 dependencies = [
  "axum",
  "futures",
@@ -5955,7 +5968,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
