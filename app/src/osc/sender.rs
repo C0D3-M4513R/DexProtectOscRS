@@ -3,7 +3,6 @@ use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use futures::StreamExt;
 use rosc::OscPacket;
 use tokio::net::UdpSocket;
 
@@ -12,6 +11,7 @@ use tokio::net::UdpSocket;
 #[derive(Clone)]
 pub enum OscSender {
     OSC { osc_send: Arc<UdpSocket>, },
+    #[cfg(feature = "oscquery")]
     OscQuery { query: Arc<vrchat_osc::VRChatOSC> }
 }
 async fn bind_and_connect_udp(ip:IpAddr, bind_port:u16, connect_port:u16, way:&str) -> std::io::Result<UdpSocket> {
@@ -39,6 +39,11 @@ impl OscSender {
         })
     }
 
+    #[cfg(feature = "oscquery")]
+    pub const fn is_oscquery(&self) -> bool {
+        matches!(self, Self::OscQuery {..})
+    }
+
     pub async fn send(self, packet: OscPacket, names: Option<Arc<[Arc<str>]>>) -> anyhow::Result<()> {
 
         #[cfg(all(debug_assertions, feature = "debug_log"))]
@@ -48,6 +53,7 @@ impl OscSender {
     }
     pub async fn send_raw(self, packet: &[u8], names: Option<Arc<[Arc<str>]>>) -> anyhow::Result<()> {
         match (names, self) {
+            #[cfg(feature = "oscquery")]
             (None, Self::OscQuery {..}) => {
                 log::error!("Got no name information, but we are a osc_query sender?");
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Got no name information, but we are a osc_query sender?").into())
@@ -59,7 +65,9 @@ impl OscSender {
             (None, Self::OSC {osc_send}) => {
                 osc_send.send(packet).await.map(|_|()).map_err(Into::into)
             }
+            #[cfg(feature = "oscquery")]
             (Some(v), Self::OscQuery { query }) => {
+                use futures::StreamExt;
                 let mut has_error = false;
                 let mut error = anyhow::Error::msg("Failed to send packet to at least one destination");
                 let mut js = futures::stream::FuturesUnordered::new();
@@ -89,9 +97,10 @@ impl OscSender {
         }
     }
     
-    pub fn send_raw_packet<A:AsRef<[u8]>>(&self, packet: A, addr: core::net::SocketAddr) -> RawSendMessage<A> {
+    pub fn send_raw_packet<A:AsRef<[u8]>>(&self, packet: A, #[cfg_attr(not(feature = "oscquery"), allow(unused_variables))] addr: core::net::SocketAddr) -> RawSendMessage<A> {
         RawSendMessage{
             message: core::cell::Cell::new(Some(packet)),
+            #[cfg(feature = "oscquery")]
             socket_addr: addr,
             sender: self.clone(),
         }
@@ -100,6 +109,7 @@ impl OscSender {
 
 pub struct RawSendMessage<A: AsRef<[u8]>> {
     message: core::cell::Cell<Option<A>>,
+    #[cfg(feature = "oscquery")]
     socket_addr: core::net::SocketAddr,
     sender: OscSender,
 }
@@ -120,7 +130,10 @@ impl<A: AsRef<[u8]>> RawSendMessage<A> {
                     Poll::Ready(Err(err)) => Poll::Ready((Err(err.into()), message)),
                 }
             },
+            #[cfg(feature = "oscquery")]
             OscSender::OscQuery { query } => {
+                //Todo: This path is incorrect!
+                log::error!("This message likely wont be received! Message sent to {}", self.socket_addr);
                 match query.poll_send_to_addr_raw(cx, message.as_ref(), self.socket_addr) {
                     Poll::Pending => {
                         self.message.set(Some(message));

@@ -6,15 +6,43 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use aes::cipher::{BlockModeDecrypt, KeyIvInit};
-use egui::mutex::Mutex;
+use parking_lot::Mutex;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use unicode_bom::Bom;
-use vrchat_osc::models::{OscValue};
 use super::OscSender;
 use super::OscCreateData;
 
 const DEX_KEY_WAIT_MS:u64 = 1_500;
-const DEX_KEY_WAIT_DESC:&'static str = "1.5 seconds";
+const DEX_KEY_WAIT_RETRIES:u64 = 5;
+const DEX_KEY_WAIT_DESC:&'static str = const {
+    const fn get_fractionals(wait_ms: u64) -> u64 {
+        let mut fractionals = wait_ms%1000;
+        while fractionals % 10 == 0 {
+            fractionals /= 10;
+        }
+
+        fractionals
+    }
+    const SECONDS:u64 = DEX_KEY_WAIT_MS/1000;
+    const FRACTIONALS:u64 = get_fractionals(DEX_KEY_WAIT_MS);
+
+    const_format::formatc!("{SECONDS}.{FRACTIONALS} seconds")
+};
+
+const DEX_KEY_MAX_WAIT_DESC:&'static str = const {
+    const fn get_fractionals(wait_ms: u64) -> u64 {
+        let mut fractionals = wait_ms%1000;
+        while fractionals % 10 == 0 {
+            fractionals /= 10;
+        }
+
+        fractionals
+    }
+    const SECONDS:u64 = DEX_KEY_WAIT_MS*DEX_KEY_WAIT_RETRIES/1000;
+    const FRACTIONALS:u64 = get_fractionals(DEX_KEY_WAIT_MS*DEX_KEY_WAIT_RETRIES);
+
+    const_format::formatc!("{SECONDS}.{FRACTIONALS} seconds")
+};
 
 #[derive(Clone)]
 pub(super) struct DexOscHandler {
@@ -99,6 +127,11 @@ impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::So
                                                 #[cfg(all(debug_assertions, feature="debug_log"))]
                                                 log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key. (was {v:?}, expected {val:?})", message.addr);
                                                 replace = true;
+                                            } else {
+                                                #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                                log::debug!("Got a avatar-key parameter set");
+                                                #[cfg(all(debug_assertions, feature="debug_log"))]
+                                                log::debug!("Got a avatar-key parameter set: {message:?}");
                                             }
                                         }
                                     }
@@ -132,12 +165,13 @@ impl network_handler::ArbitraryHandler<&'_ [&'_ rosc::OscMessage], core::net::So
 impl DexOscHandler {
     async fn handle_avatar_change_osc(self, id: Arc<str>, _: core::net::SocketAddr) {
         let names = match &self.osc{
+            #[cfg(feature = "oscquery")]
             OscSender::OscQuery { query, ..} => {
                 match query.get_parameter(super::VRCHAT_AVATAR_CHANGE, super::ALL_VRCHAT_CLIENTS).await {
                     Ok(v) => Some(v.into_iter()
                         .filter_map(|(name, node)|{
                             match node.value.unwrap_or_default().get(0) {
-                                Some(OscValue::String(v)) => {
+                                Some(vrchat_osc::models::OscValue::String(v)) => {
                                     if v.as_str() == id.as_ref() {
                                         Some(Arc::<str>::from(name))
                                     } else {
@@ -265,79 +299,96 @@ impl DexOscHandler {
                 type_ = OscType::Float(amount);
             }
             params.insert(string.clone(), type_.clone());
-            if self.dex_use_bundles {
-                key.push(OscPacket::Message(OscMessage{
-                    addr: string.clone(),
-                    args: vec![type_],
-                }));
-            }else {
-                let osc = self.osc.clone();
-                js.spawn(osc.send(OscPacket::Message(OscMessage{
-                    addr: string.clone(),
-                    args: vec![type_],
-                }), names.clone()));
-            }
+            let msg = OscPacket::Message(OscMessage{
+                addr: string.clone(),
+                args: vec![type_],
+            });
+            key.push(msg);
             i+=2;
         }
-        if self.dex_use_bundles {
-            log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
-            let osc = self.osc.clone();
-            js.spawn(osc.send(OscPacket::Bundle(OscBundle{
-                timetag: rosc::OscTime{
-                    seconds: 0,
-                    fractional: 1
-                },
-                content: key
-            }), names.clone()));
-        }
-        while let Some(v) = js.join_next().await {
-            match v{
-                Ok(Ok(_)) => {}
-                Ok(Err(err)) => {
-                    log::error!("Failed to send osc message: {err}");
-                }
-                Err(err) => {
-                    log::error!("Panicked whilst sending data: {err}");
-                }
-            }
-        }
+        send_key(&mut js, self.osc.clone(), &key, names.clone(), self.dex_use_bundles);
+        wait_all_js(&mut js).await;
         log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
         if !do_detect { return; }
         params.shrink_to_fit();
         let params_clone = self.params.clone();
         let jh = tokio::task::spawn(async move {
-            for i in 1..=3 {
+            #[cfg(feature = "oscquery")]
+            let mut js = tokio::task::JoinSet::new();
+            for i in 1..=DEX_KEY_WAIT_RETRIES {
                 tokio::time::sleep(Duration::from_millis(DEX_KEY_WAIT_MS)).await;
-                let params = params_clone.lock();
-                let params = &*params;
-                match params {
-                    None => {
-                        log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
-                        log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.")
-                    }
-                    Some((_, params)) => {
-                        if params.is_empty() {
-                            log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.")
-                        } else {
-                            #[cfg(all(debug_assertions, feature="debug_log"))]
-                            {
-                                let len = params.len();
-                                let params = params.iter()
-                                    .map(|(k, v)|format!("\r\n\t{k}\t{v:?}"))
-                                    .collect::<String>();
-                                log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {len} avatar keys, that were not applied. {params}");
-                            }
-                            #[cfg(not(all(debug_assertions, feature="debug_log")))]
-                            {
-                                log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {} avatar keys, that were not applied.", params.len());
-                            }
+                {
+                    let params = params_clone.lock();
+                    let params_ref = match &*params {
+                        None => {
+                            log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
+                            log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.");
+                            return;
                         }
+                        Some((_, v)) => v,
+                    };
+
+                    if params_ref.is_empty() {
+                        log::trace!("All Avatar Keys have been supplied after {i}*{DEX_KEY_WAIT_DESC}.");
+                        return;
+                    }
+
+                    let len = params_ref.len();
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                    {
+                        let params = params_ref.iter()
+                            .map(|(k, v)|format!("\r\n\t{k}\t{v:?}"))
+                            .collect::<String>();
+                        log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {len} avatar keys, that were not applied. {params}");
+                    }
+                    #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                    {
+                        log::error!("The Avatar Key has not been fully applied after {i}*{DEX_KEY_WAIT_DESC}. There are {len} avatar keys, that were not applied.");
+                    }
+                }
+                #[cfg(feature = "oscquery")]
+                {
+                    if self.osc.is_oscquery() {
+                        send_key(&mut js, self.osc.clone(), &key, names.clone(), self.dex_use_bundles);
+                        wait_all_js(&mut js).await;
                     }
                 }
             }
+            *params_clone.lock() = None;
+            log::error!("Giving up on unlocking after {DEX_KEY_MAX_WAIT_DESC}.");
         });
         *self.params.lock() = Some((jh.abort_handle(), params));
+    }
+}
 
+fn send_key(js: &mut tokio::task::JoinSet<anyhow::Result<()>>, osc: OscSender, key: &Vec<OscPacket>, names: Option<Arc<[Arc<str>]>>, use_bundles: bool) {
+    if use_bundles {
+        log::warn!("You are using Osc Bundles. This can cause issues with newer style keys and VRChat.\nSee https://feedback.vrchat.com/bug-reports/p/inconsistent-handling-of-osc-packets-inside-osc-bundles-and-osc-packages .");
+        js.spawn(osc.send(OscPacket::Bundle(OscBundle{
+            timetag: rosc::OscTime{
+                seconds: 0,
+                fractional: 1
+            },
+            content: key.clone()
+        }), names));
+    } else {
+        for msg in key {
+            let osc = osc.clone();
+            js.spawn(osc.send(msg.clone(), names.clone()));
+        }
+    }
+}
+async fn wait_all_js(js: &mut tokio::task::JoinSet<anyhow::Result<()>>) {
+    while let Some(v) = js.join_next().await {
+        match v{
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
+                log::error!("Failed to send osc message: {err}");
+            }
+            Err(err) => {
+                log::error!("Panicked whilst sending data: {err}");
+            }
+        }
     }
 }
 

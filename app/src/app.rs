@@ -18,6 +18,7 @@ pub struct AppData{
     ip:String,
     path:String,
     dex_use_bundles: bool,
+    #[cfg(feature = "oscquery")]
     use_oscquery: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
@@ -57,6 +58,7 @@ impl<'a> Debug for App<'a>{
         debug.field("file_picker_thread.is_some()", &self.file_picker_thread.is_some());
         debug
             .field("osc_multiplexer_port_popup.is_some()", &self.osc_multiplexer_port_popup.is_some())
+            .field("stop_osc", &self.stop_osc)
             .field("osc_thread", &self.osc_thread)
             .field("osc_join_set", &self.osc_join_set)
             .field("popups.len()", &self.popups.len())
@@ -83,6 +85,7 @@ impl Default for AppData{
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
             dex_use_bundles: false,
+            #[cfg(feature = "oscquery")]
             use_oscquery: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
@@ -101,6 +104,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
     fn try_from(value: &App<'a>) -> Result<Self, Self::Error> {
         Ok(OscCreateData{
+            #[cfg(feature = "oscquery")]
             use_oscquery: value.use_oscquery,
             ip: std::net::IpAddr::from_str(value.ip.as_str())?,
             recv_port: value.osc_recv_port,
@@ -427,6 +431,7 @@ impl<'a> App<'a> {
         ui.add_space(16.);
 
         ui.heading("Generic Osc Controls:");
+        #[cfg(feature = "oscquery")]
         ui.horizontal(|ui|{
             ui.checkbox(&mut self.use_oscquery, "Use OscQuery: ");
             ui.label("OscQuery is known to have several deficiencies.");
@@ -434,7 +439,12 @@ impl<'a> App<'a> {
             ui.hyperlink_to("Issue #2", "https://vrchat.canny.io/bug-reports/p/oscquery-not-properly-filtering-data");
             ui.hyperlink_to("Issue #3", "https://vrchat.canny.io/bug-reports/p/oscquery-provides-wrong-values-for-avatar-parameters-until-they-are-changed");
         });
-        ui.add_enabled_ui(!self.use_oscquery, |ui|{
+        #[cfg(feature = "oscquery")]
+        let oscquery = self.use_oscquery;
+        #[cfg(not(feature = "oscquery"))]
+        let oscquery = false;
+
+        ui.add_enabled_ui(!oscquery, |ui|{
             ui.horizontal(|ui|{
                 ui.label("IP:");
                 ui.text_edit_singleline(&mut self.ip);

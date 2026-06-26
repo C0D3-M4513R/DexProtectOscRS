@@ -59,7 +59,7 @@ parking_lot = "0.12.5"
 futures = "0.3"
 
 #osc
-vrchat_osc = {version = "2.2.0", registry = "forgejo-code-rust"}
+vrchat_osc = {version = "2.2.0", registry = "forgejo-code-rust", optional = true}
 rosc = "0.11.4"
 nom = "7.0.0"
 network-handler = {version = "0.2.0", registry = "forgejo-code-rust", features = ["tokio"]}
@@ -71,6 +71,7 @@ aes = "0.9.0"
 #block-padding = "0.3.3"
 
 anyhow = "1.0.102"
+const_format = { version = "0.2.36", features = ["rust_1_83", "fmt"] }
 app_macro = {path = "../app_macro"}
 phf = { version = "0.13.1", features = ["macros"], optional = true }
 
@@ -82,6 +83,6 @@ tray = ["dep:tray-icon"]
 
 compile_time_key_include = ["dep:phf"]
 
-oscquery = []
+oscquery = ["dep:vrchat_osc"]
 no_decryption_keys = []
 debug_log = ["network-handler/debug_log"]
