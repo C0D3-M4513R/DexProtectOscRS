@@ -1,27 +1,22 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
-use std::ops::IndexMut;
+use std::ops::{Deref, DerefMut, IndexMut};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use egui::{Ui, Widget};
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
-use crate::get_runtime;
 use crate::osc::OscCreateData;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct App<'a>{
+pub struct AppData{
     logs_visible: bool,
-    #[serde(skip)]
-    collector:egui_tracing::EventCollector,
     auto_connect_launch: bool,
     ip:String,
     path:String,
-    #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
-    #[serde(skip)]
-    file_picker_thread: Option<tokio::task::JoinHandle<Option<PathBuf>>>,
     dex_use_bundles: bool,
     osc_recv_port: u16,
     osc_send_port: u16,
@@ -30,63 +25,70 @@ pub struct App<'a>{
     osc_multiplexer_parse_packets: bool,
     dex_protect_enabled: bool,
     osc_multiplexer_rev_port: Vec<u16>,
-    #[serde(skip)]
-    osc_multiplexer_port_popup: Option<Box<PopupFunc<'a>>>,
-    #[serde(skip)]
-    osc_thread: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
-    #[serde(skip)]
-    osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     osc_create_data: OscCreateData,
-    #[serde(skip)]
+}
+
+pub struct App<'a>{
+    collector:egui_tracing::EventCollector,
+    data: AppData,
+
+    #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
+    file_picker_thread: Option<tokio::task::JoinHandle<Option<PathBuf>>>,
+
+    osc_multiplexer_port_popup: Option<Box<PopupFunc<'a>>>,
+    osc_thread: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    #[cfg(feature = "tray")]
+    #[allow(dead_code)]
+    icon: tray_icon::TrayIcon,
+    #[cfg(feature = "tray")]
+    quit: Arc<parking_lot::Mutex<bool>>,
 }
 impl<'a> Debug for App<'a>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("App");
-        debug.field("logs_visible", &self.logs_visible)
-            .field("auto_connect_launch",&self.auto_connect_launch)
-            .field("ip", &self.ip)
-            .field("path", &self.path);
+        debug.field("collector", &self.collector)
+            .field("data",&self.data);
         #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
         debug.field("file_picker_thread.is_some()", &self.file_picker_thread.is_some());
         debug
-            .field("dex_use_bundles", &self.dex_use_bundles)
-            .field("osc_recv_port", &self.osc_recv_port)
-            .field("osc_send_port", &self.osc_send_port)
-            .field("max_message_size", &self.max_message_size)
-            .field("osc_multiplexer_enabled", &self.osc_multiplexer_enabled)
-            .field("dex_protect_enabled", &self.dex_protect_enabled)
-            .field("osc_multiplexer_rev_port", &self.osc_multiplexer_rev_port)
+            .field("osc_multiplexer_port_popup.is_some()", &self.osc_multiplexer_port_popup.is_some())
             .field("osc_thread", &self.osc_thread)
             .field("osc_join_set", &self.osc_join_set)
-            .field("osc_create_data", &self.osc_create_data)
             .field("popups.len()", &self.popups.len())
             .finish()
     }
 }
-impl<'a> Default for App<'a>{
+impl<'a> Deref for App<'a>{
+    type Target = AppData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+impl<'a> DerefMut for App<'a>{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+impl Default for AppData{
     fn default() -> Self {
         Self{
             logs_visible: false,
-            collector:egui_tracing::EventCollector::new(),
             auto_connect_launch: true,
             ip:"127.0.0.1".to_string(),
             path: "".to_string(),
-            #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
-            file_picker_thread: None,
             dex_use_bundles: false,
             osc_recv_port: crate::osc::OSC_RECV_PORT,
             osc_send_port: crate::osc::OSC_SEND_PORT,
-            max_message_size: osc_handler::OSC_RECV_BUFFER_SIZE,
+            max_message_size: crate::osc::OSC_RECV_BUFFER_SIZE,
             osc_multiplexer_enabled: false,
             osc_multiplexer_parse_packets: false,
             dex_protect_enabled: true,
             osc_multiplexer_rev_port: Vec::new(),
-            osc_multiplexer_port_popup: None,
-            osc_thread: None,
-            osc_join_set: None,
             osc_create_data: OscCreateData::default(),
-            popups: VecDeque::new(),
         }
     }
 }
@@ -111,22 +113,81 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
 impl<'a> App<'a> {
     /// Called once before the first frame.
-    pub fn new(collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
 
-        let mut slf:App = if let Some(storage) = cc.storage {
+        let data:AppData = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         }else {
             Default::default()
         };
 
+
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
-        slf.collector = collector;
+
+        let quit_mut = Arc::new(parking_lot::Mutex::new(false));
+
+        #[cfg(feature="tray")]
+        let icon = {
+            let ctx = cc.egui_ctx.clone();
+            let icon = &crate::ICON_BYTES;
+            let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
+            let menu = tray_icon::menu::Menu::new();
+            let open = tray_icon::menu::MenuItem::new("Open", true, None);
+            let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
+            menu.append_items(&[&open, &quit]).expect("Failed to build menu");
+
+            let icon = match tray_icon::TrayIconBuilder::new()
+                .with_icon(tray_icon)
+                .with_menu(Box::new(menu))
+                .build()
+            {
+                Ok(icon) => icon,
+                Err(err) => {
+                    log::error!("Failed to spawn Tray: {err}");
+                    panic!("Failed to spawn Tray: {err}");
+                }
+            };
+
+            {
+                let quit_mut = quit_mut.clone();
+                let open = open.into_id();
+                let quit = quit.into_id();
+                tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
+                    if v.id == quit {
+                        *quit_mut.lock() = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if v.id == open {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    }
+                }))
+            }
+
+            icon
+        };
+
+
+        let mut slf = Self {
+            collector,
+            data,
+            file_picker_thread: None,
+            osc_multiplexer_port_popup: None,
+            osc_thread: None,
+            osc_join_set: None,
+            popups: Default::default(),
+            runtime,
+            #[cfg(feature="tray")]
+            icon,
+            #[cfg(feature="tray")]
+            quit: quit_mut
+        };
+
         if slf.auto_connect_launch{
             slf.spawn_osc_from_creation_data();
         }
@@ -166,7 +227,7 @@ impl<'a> App<'a> {
     fn spawn_osc_from_creation_data(&mut self){
         log::info!("Trying to connect to OSC on IP '{}'", self.osc_create_data.ip);
         let osc_create_data = self.osc_create_data.clone();
-        self.osc_thread = Some(tokio::spawn(async move {
+        self.osc_thread = Some(self.runtime.spawn(async move {
             let mut js = crate::osc::create_and_start_osc(&osc_create_data).await?;
             log::info!("Successfully connected to OSC and started all Handlers.");
             loop{
@@ -187,7 +248,7 @@ impl<'a> App<'a> {
     fn check_osc_thread(&mut self){
         if let Some(osc_thread) = self.osc_thread.take() {
             if osc_thread.is_finished(){
-                match get_runtime().block_on(osc_thread){
+                match self.runtime.block_on(osc_thread){
                     Ok(Ok(())) => {
                         log::error!("OSC Thread finished unexpectedly");
                         let time = Instant::now();
@@ -242,7 +303,7 @@ impl<'a> App<'a> {
                     resp = resp.on_hover_text("A Dialogue to Pick a Folder is currently open. Please use that one.");
                 }
                 if resp.clicked(){
-                    self.file_picker_thread = Some(get_runtime().spawn(async{
+                    self.file_picker_thread = Some(self.runtime.spawn(async{
                         rfd::AsyncFileDialog::new()
                             .pick_folder()
                             .await
@@ -251,7 +312,7 @@ impl<'a> App<'a> {
                 }
                 if let Some(file_picker_thread) = self.file_picker_thread.take(){
                     if file_picker_thread.is_finished(){
-                        match get_runtime().block_on(file_picker_thread) {
+                        match self.runtime.block_on(file_picker_thread) {
                             Ok(Some(path)) => {
                                 self.path = path.to_string_lossy().to_string();
                                 log::info!("Picked Folder: '{}' (potential replacements due to non UTF-8 characters) ", self.path);
@@ -302,6 +363,21 @@ impl<'a> App<'a> {
     }
 
     fn osc_control_ui(&mut self, ui: &mut egui::Ui){
+        #[cfg(feature = "tray")]
+        {
+            ui.heading("Generic Controls:");
+            let mut quit = self.quit.lock();
+            ui.horizontal(|ui|{
+                ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
+                ui.checkbox(&mut*quit, ());
+            });
+            if ui.button("Quit Immediately").clicked() {
+                *quit = true;
+                ui.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        ui.add_space(16.);
+
         ui.heading("Generic Osc Controls:");
         ui.horizontal(|ui|{
             ui.label("IP:");
@@ -328,7 +404,7 @@ impl<'a> App<'a> {
                 .range(1..=usize::try_from(isize::MAX).unwrap_or(usize::MAX))
                 .ui(ui);
             if ui.button("Reset to Default").clicked() {
-                self.max_message_size = osc_handler::OSC_RECV_BUFFER_SIZE;
+                self.max_message_size = crate::osc::OSC_RECV_BUFFER_SIZE;
             }
         });
         ui.label("Please note that the Settings in the Ui will only be applied after you Reconnect/Connect.");
@@ -364,6 +440,18 @@ impl<'a> App<'a> {
 }
 
 impl<'a> eframe::App for App<'a> {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(feature = "tray")]
+        {
+            let quit = *self.quit.lock();
+            if ctx.input(|v|v.viewport().close_requested()){
+                if !quit {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                }
+            }
+        }
+    }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.check_osc_thread();
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -372,28 +460,21 @@ impl<'a> eframe::App for App<'a> {
             let osc_multiplexer_enabled = self.osc_multiplexer_enabled;
             let logs_visible = self.logs_visible;
             let mut strip_builder = egui_extras::StripBuilder::new(ui);
+            strip_builder = strip_builder.size(egui_extras::Size::exact(130.))
+                .size(egui_extras::Size::exact(25.));
             if dex_protect_enabled {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(80.));
             }
             if osc_multiplexer_enabled {
                 strip_builder = strip_builder.size(egui_extras::Size::exact(90.));
             }
-            strip_builder = strip_builder.size(egui_extras::Size::exact(130.))
-                .size(egui_extras::Size::exact(25.));
             if logs_visible {
-                strip_builder = strip_builder.size(egui_extras::Size::remainder());
+                //FIXME(egui_tracing): Using a Size of Remaining causes issue:
+                // - https://github.com/grievouz/egui_tracing/issues/48
+                // - https://github.com/grievouz/egui_tracing/issues/47
+                strip_builder = strip_builder.size(egui_extras::Size::exact(500.));
             }
             strip_builder.vertical(|mut strip| {
-                if dex_protect_enabled {
-                    strip.cell(|ui|{
-                        self.dex_protect_ui(ui);
-                    });
-                }
-                if osc_multiplexer_enabled {
-                    strip.cell(|ui|{
-                        self.multiplexer_ui(ui);
-                    });
-                }
                 strip.cell(|ui|{
                     self.osc_control_ui(ui);
                 });
@@ -406,9 +487,18 @@ impl<'a> eframe::App for App<'a> {
                         ui.checkbox(&mut self.osc_multiplexer_enabled, "Enable Osc Multiplexer (allows for multiple Osc send applications) ");
                     });
                 });
+                if dex_protect_enabled {
+                    strip.cell(|ui|{
+                        self.dex_protect_ui(ui);
+                    });
+                }
+                if osc_multiplexer_enabled {
+                    strip.cell(|ui|{
+                        self.multiplexer_ui(ui);
+                    });
+                }
                 if logs_visible {
                     strip.cell(|ui|{
-                        ui.request_repaint_after_secs(15.);
                         ui.add(egui_tracing::Logs::new(self.collector.clone()));
                     });
                 }
@@ -431,10 +521,10 @@ impl<'a> eframe::App for App<'a> {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage,eframe::APP_KEY, self)
+        eframe::set_value(storage,eframe::APP_KEY, &self.data)
     }
 }
-type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a;
+type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a + Send;
 
 fn get_id() -> u64 {
     static ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -443,7 +533,7 @@ fn get_id() -> u64 {
 
 fn popup_creator<'a>(
     title: impl Into<egui::WidgetText> + 'a,
-    add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
+    add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a + Send,
 ) -> Box<PopupFunc<'a>> {
     popup_creator_collapsible(title, false, add_content)
 }
@@ -451,7 +541,7 @@ fn popup_creator<'a>(
 fn popup_creator_collapsible<'a>(
     title: impl Into<egui::WidgetText> + 'a,
     collapsible: bool,
-    mut add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a,
+    mut add_content: impl FnMut(&mut App, &mut egui::Ui) + 'a + Send,
 ) -> Box<PopupFunc<'a>> {
     let title = title.into();
     let id = get_id();
