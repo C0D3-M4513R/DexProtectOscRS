@@ -86,7 +86,7 @@
 					] ++ commonBuildInputs;
 
 				  #FIXME(tray-icon): Darwin has is known broken compilation for tray-icon: https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
-					buildFeatures = [] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
+					buildFeatures = ["oscquery"] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
 
 					desktopItems =
 					let
