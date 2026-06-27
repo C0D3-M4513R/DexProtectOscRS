@@ -18,6 +18,8 @@ mod dex_key;
 
 pub const OSC_RECV_PORT:u16 = 9001;
 pub const OSC_SEND_PORT:u16 = 9000;
+pub const OSC_RECV:SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), OSC_RECV_PORT);
+pub const OSC_SEND:SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), OSC_SEND_PORT);
 pub const OSC_RECV_BUFFER_SIZE:usize = 8192;
 
 #[cfg(feature = "oscquery")]
@@ -49,8 +51,8 @@ impl Default for OscCreateData {
         OscCreateData{
             #[cfg(feature = "oscquery")]
             use_oscquery: false,
-            recv: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), OSC_RECV_PORT),
-            send: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), OSC_SEND_PORT),
+            recv: OSC_RECV,
+            send: OSC_SEND,
             max_message_size: OSC_RECV_BUFFER_SIZE,
             dex_protect_enabled: true,
             dex_use_bundles: false,
@@ -58,6 +60,22 @@ impl Default for OscCreateData {
             osc_multiplexer_sockets: Vec::new(),
             osc_multiplexer_parse_packets: false,
         }
+    }
+}
+
+impl OscCreateData {
+    pub fn merge_data(mut self, data:crate::OscCreateData) -> Self {
+        #[cfg(feature = "oscquery")]
+        if let Some(use_oscquery) = data.use_oscquery { self.use_oscquery = use_oscquery; }
+        if let Some(recv) = data.recv { self.recv = recv;}
+        if let Some(send) = data.send { self.send = send; }
+        if let Some(max_message_size) = data.max_message_size { self.max_message_size = max_message_size; }
+        if let Some(dex_protect_enabled) = data.dex_protect_enabled { self.dex_protect_enabled = dex_protect_enabled; }
+        if let Some(dex_use_bundles) = data.dex_use_bundles { self.dex_use_bundles = dex_use_bundles; }
+        if let Some(path) = data.path { self.path = path; }
+        if let Some(osc_multiplexer_sockets) = data.osc_multiplexer_sockets { self.osc_multiplexer_sockets = osc_multiplexer_sockets; }
+        if let Some(osc_multiplexer_parse_packets) = data.osc_multiplexer_parse_packets { self.osc_multiplexer_parse_packets = osc_multiplexer_parse_packets; }
+        self
     }
 }
 

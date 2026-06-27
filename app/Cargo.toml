@@ -3,6 +3,7 @@ name = "dex_protect_osc_rs"
 version = "0.1.3"
 edition = "2021"
 publish = false
+authors = ["C0D3 M4513R"]
 #publish = ["forgejo-code-rust"]
 
 [badges]
@@ -33,10 +34,10 @@ maintenance = { status = "passively-maintained" }
 [dependencies]
 #gui stuff
 rfd = {version = "0.17", optional = true}
-egui_tracing = "0.3"
-egui_extras = "0.34"
-egui = "0.34"
-eframe = { version = "0.34", features = [ "persistence"] }
+egui_tracing = { version = "0.3" , optional = true}
+egui_extras = { version = "0.34" , optional = true}
+egui = { version = "0.34" , optional = true}
+eframe = { version = "0.34", features = [ "persistence"], optional = true }
 
 #https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
 #https://github.com/tauri-apps/tray-icon/issues/261
@@ -45,8 +46,8 @@ tray-icon = { version = "0.21.3", git = "https://github.com/rmakestrash-jpg/tray
 
 #Logging
 log = "0.4"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-core = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing = "0.1.44"
 thiserror = "2.0.17"
 
 #Persistant data storage
@@ -73,14 +74,27 @@ aes = "0.9.0"
 
 anyhow = "1.0.102"
 const_format = { version = "0.2.36", features = ["rust_1_83", "fmt"] }
+clap = "4.6.1"
+clap_derive = "4.6.1"
+
 app_macro = {path = "../app_macro"}
 phf = { version = "0.13.1", features = ["macros"], optional = true }
+
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", default-features = false, features = ["std", "Win32_System_Console"]}
 
 [features]
 default = ["file_dialog"]
 
-file_dialog = ["dep:rfd"]
-tray = ["dep:tray-icon"]
+gui = [
+    "dep:egui_tracing",
+    "dep:egui_extras",
+    "dep:egui",
+    "dep:eframe",
+]
+file_dialog = ["gui", "dep:rfd"]
+tray = ["gui", "dep:tray-icon"]
 
 compile_time_key_include = ["dep:phf"]
 

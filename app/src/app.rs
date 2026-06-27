@@ -8,6 +8,7 @@ use std::sync::Arc;
 use egui::{Ui, Widget};
 use serde_derive::{Deserialize, Serialize};
 use tokio::time::Instant;
+use crate::{Args};
 use crate::osc::OscCreateData;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -29,6 +30,23 @@ pub struct AppData{
     dex_protect_enabled: bool,
     osc_multiplexer_sockets: Vec<(String, u16)>,
     osc_create_data: OscCreateData,
+}
+
+impl AppData {
+    pub fn merge_data(mut self, data:&Args) -> Self {
+        #[cfg(feature = "tray")]
+        if data.start_minimized { self.auto_connect_launch = true; }
+        if let Some(use_oscquery) = data.osc.use_oscquery { self.use_oscquery = use_oscquery; }
+        if let Some(recv) = data.osc.recv { self.recv_ip = recv.ip().to_string(); self.osc_recv_port = recv.port(); }
+        if let Some(send) = data.osc.send { self.send_ip = send.ip().to_string(); self.osc_send_port = send.port(); }
+        if let Some(max_message_size) = data.osc.max_message_size { self.max_message_size = max_message_size; }
+        if let Some(dex_protect_enabled) = data.osc.dex_protect_enabled { self.dex_protect_enabled = dex_protect_enabled; }
+        if let Some(dex_use_bundles) = data.osc.dex_use_bundles { self.dex_use_bundles = dex_use_bundles; }
+        if let Some(path) = &data.osc.path { if let Some(path) = path.to_str() { self.path = path.to_string() } else { log::warn!("The specified path '{}' cannot be converted to a UTF-8 String", path.display())} }
+        if let Some(osc_multiplexer_sockets) = &data.osc.osc_multiplexer_sockets { self.osc_multiplexer_sockets = osc_multiplexer_sockets.iter().map(|v|(v.ip().to_string(), v.port())).collect(); }
+        if let Some(osc_multiplexer_parse_packets) = data.osc.osc_multiplexer_parse_packets { self.osc_multiplexer_parse_packets = osc_multiplexer_parse_packets; }
+        self
+    }
 }
 
 pub struct App<'a>{
@@ -128,7 +146,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
 impl<'a> App<'a> {
     /// Called once before the first frame.
-    pub fn new(collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(args: crate::Args, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -140,6 +158,7 @@ impl<'a> App<'a> {
         }else {
             Default::default()
         };
+        let data = data.merge_data(&args);
 
 
         #[cfg(not(debug_assertions))]
@@ -147,24 +166,24 @@ impl<'a> App<'a> {
 
         let quit_mut = Arc::new(parking_lot::Mutex::new(false));
 
-        /*
         {
             let quit_mut = quit_mut.clone();
             let cc = cc.egui_ctx.clone();
-            tokio::spawn(async move {
+            runtime.spawn(async move {
                 if let Err(err) = tokio::signal::ctrl_c().await {
                     log::error!("Failed to listen for Ctrl-C: {err}");
                 }
+                tracing::info!("Received Ctrl-C. Exiting!");
                 *quit_mut.lock() = true;
                 cc.send_viewport_cmd(egui::ViewportCommand::Close);
             });
         }
-        */
+
 
         #[cfg(feature="tray")]
         let icon = {
             let ctx = cc.egui_ctx.clone();
-            let icon = &crate::ICON_BYTES;
+            let icon = &crate::icon::ICON_BYTES;
             let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
             let menu = tray_icon::menu::Menu::new();
             let open = tray_icon::menu::MenuItem::new("Open", true, None);
@@ -201,9 +220,15 @@ impl<'a> App<'a> {
             icon
         };
 
+        #[cfg(feature="tray")]
+        if args.start_minimized {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
+
         let mut slf = Self {
             collector,
             data,
+            #[cfg(all(feature = "file_dialog", not(target_arch = "wasm32")))]
             file_picker_thread: None,
             osc_multiplexer_port_popup: None,
             stop_osc: None,
@@ -274,21 +299,22 @@ impl<'a> App<'a> {
         self.osc_thread = Some(self.runtime.spawn(crate::osc::create_and_start_osc(osc_create_data, rx)));
     }
 
-    fn check_osc_thread(&mut self){
+    fn check_osc_thread(&mut self, ctx: &egui::Context){
         if let Some(osc_thread) = self.osc_thread.take() {
             if osc_thread.is_finished(){
                 log::error!("OSC Thread finished unexpectedly");
-                self.join_osc_thread(osc_thread, false);
+                self.join_osc_thread(ctx, osc_thread, false);
             }else{
                 self.osc_thread = Some(osc_thread);
             }
         }
     }
-    fn join_osc_thread(&mut self, osc_thread: tokio::task::JoinHandle<anyhow::Result<()>>, expect_exit: bool) {
+    fn join_osc_thread(&mut self, ctx: &egui::Context, osc_thread: tokio::task::JoinHandle<anyhow::Result<()>>, expect_exit: bool) {
         match self.runtime.block_on(osc_thread){
             Ok(Ok(())) => {
                 log::info!("OSC Thread finished");
                 if expect_exit {return;}
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 let time = Instant::now();
                 self.popups.push_back(popup_creator(
                     "OSC Thread Exited",
@@ -300,10 +326,12 @@ impl<'a> App<'a> {
             }
             Ok(Err(e)) => {
                 log::warn!("Error in OSC Thread: {}",e);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 self.handle_display_popup("Osc Error:", &e, "Error in Osc");
             }
             Err(e) => {
                 log::error!("Panic in OSC Thread: {}", e);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 self.handle_join_error(&e, "Critical Error in Osc");
             }
         }
@@ -467,7 +495,7 @@ impl<'a> App<'a> {
         ui.horizontal(|ui|{
             if ui.button(if self.osc_thread.is_some() {"Reconnect"} else {"Connect"}).clicked() {
                 if let Some(thread) = self.stop_osc() {
-                    self.join_osc_thread(thread, true);
+                    self.join_osc_thread(ui.ctx(), thread, true);
                 }
                 match OscCreateData::try_from(&*self) {
                     Ok(osc_create_data) => {
@@ -501,9 +529,9 @@ impl<'a> eframe::App for App<'a> {
                 }
             }
         }
+        self.check_osc_thread(ctx);
     }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
-        self.check_osc_thread();
         egui::CentralPanel::default().show_inside(ui, |ui| {
             //create immutable copies
             let dex_protect_enabled = self.dex_protect_enabled;
