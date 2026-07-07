@@ -1336,6 +1336,7 @@ dependencies = [
  "unicode-bom",
  "vrchat_osc",
  "windows",
+ "winit",
 ]
 
 [[package]]

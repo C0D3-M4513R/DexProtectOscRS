@@ -132,17 +132,11 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
     }
 
 
-    #[cfg(feature = "oscquery")]
     let mut dex = None;
 
-
-
     if osc_create_data.dex_protect_enabled {
-        let dex_p = dex::DexOscHandler::new(&osc_create_data, receiver.clone());
-        #[cfg(feature = "oscquery")]
-        {
-            dex = Some(dex_p.clone());
-        }
+        let dex_p = dex::ArcDexOscHandler(Arc::new(dex::DexOscHandler::new(&osc_create_data, receiver.clone())));
+        dex = Some(dex_p.clone());
         message_handlers = Some(dex_p);
         log::info!("Created DexProtectOsc Handler.");
     }
@@ -273,7 +267,7 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                                         Some(vrchat_osc::models::OscValue::String(v)) => v,
                                         _ => return,
                                     };
-                                    dex.handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)])), false).await
+                                    dex.handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)]))).await
                                 });
                             }
                         }
@@ -354,6 +348,10 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
             if let Err(err) = vrcoscquery.shutdown().await {
                 log::error!("Error during OscQuery shutdown: {err}");
             }
+
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            stop_dex(dex).await;
+            log::info!("Stopped OscQuery and Osc Listener.");
             Ok(())
         }
         OscSender::OSC { osc_send, send_location: _ } => {
@@ -372,8 +370,34 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                 move |v, _, _|packet_handler(v),
             ).await;
 
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            stop_dex(dex).await;
+            log::info!("Stopped OSC Listener.");
+
             Ok(())
         }
     }
 
+}
+
+async fn stop_dex(dex: Option<dex::ArcDexOscHandler>) {
+    if let Some(dex) = dex {
+        drop(dex.stop().await);
+        let dex_weak = Arc::downgrade(&dex.0);
+        drop(dex);
+        let mut i = 0;
+        let mut new_i = dex_weak.strong_count();
+        loop {
+            if new_i <= 0 {
+                break;
+            }
+            if new_i != i {
+                tracing::debug!("{new_i} references to DexOscHandler got leaked");
+            }
+            i = new_i;
+
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            new_i = dex_weak.strong_count();
+        }
+    }
 }

@@ -5,8 +5,15 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use clap::Parser;
+use eframe::{Frame, Storage, UserEvent};
+use egui::{Context, RawInput, Ui, Visuals};
 use serde_derive::{Deserialize, Serialize};
+use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
+use winit::window::WindowId;
 
 #[cfg(feature = "gui")]
 mod app;
@@ -112,8 +119,9 @@ fn alloc_console() -> anyhow::Result<bool>{
 
     Ok(false)
 }
+
+#[cfg(windows)]
 unsafe fn set_console_handles() -> anyhow::Result<()> {
-    #[cfg(windows)]
     {
         unsafe {
             use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS, SetStdHandle, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE, STD_INPUT_HANDLE};
@@ -261,17 +269,229 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
     #[cfg(feature = "gui")]
     {
         if let Some(collector) = collector {
-            eframe::run_native(
-                "DexProtectOSC-RS",
-                eframe::NativeOptions{
-                    viewport: egui::ViewportBuilder::default()
-                        .with_icon(Arc::<egui::IconData>::new(icon::ICON_BYTES.into())),
-                    ..Default::default()
-                },
-                Box::new(|cc| {
-                    Ok(Box::new(app::App::new(args.clone(), collector.clone(), cc, runtime.clone())))
-                }),
-            )?;
+            let mut event_loop = winit::event_loop::EventLoop::with_user_event()
+                .build()?;
+
+            let quit_mut = Arc::new(parking_lot::Mutex::new(false));
+            let app_data = Arc::new(parking_lot::Mutex::new(None));
+            #[cfg(feature="tray")]
+            let cc = Arc::new(tokio::sync::Mutex::new(None::<egui::Context>));
+
+            {
+                let quit_mut = quit_mut.clone();
+                let cc = cc.clone();
+                runtime.spawn(async move {
+                    if let Err(err) = tokio::signal::ctrl_c().await {
+                        log::error!("Failed to listen for Ctrl-C: {err}");
+                    }
+                    tracing::info!("Received Ctrl-C. Exiting!");
+                    *quit_mut.lock() = true;
+                    if let Some(cc) = &*cc.lock().await {
+                        cc.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            }
+
+            let open = Arc::new(std::sync::Condvar::new());
+
+            struct App<'a>{
+                cc: Arc<parking_lot::Mutex<Option<egui::Context>>>,
+                quit_mut: Arc<parking_lot::Mutex<bool>>,
+                open_var: Arc<std::sync::Condvar>,
+                #[cfg(feature="tray")]
+                icon: bool,
+                app: eframe::EframeWinitApplication<'a>,
+            }
+            impl<'a> winit::application::ApplicationHandler<eframe::UserEvent> for App<'a> {
+                fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+                    #[cfg(feature="tray")]
+                    {
+                        if cause == winit::event::StartCause::Init && !self.icon {
+                            self.icon = true;
+                            let ctx = self.cc.clone();
+                            let open_var = self.open_var.clone();
+                            let icon = &crate::icon::ICON_BYTES;
+                            let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
+                            let menu = tray_icon::menu::Menu::new();
+                            let open = tray_icon::menu::MenuItem::new("Open", true, None);
+                            let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
+                            menu.append_items(&[&open, &quit]).expect("Failed to build menu");
+
+                            let _ = match tray_icon::TrayIconBuilder::new()
+                                .with_icon(tray_icon)
+                                .with_menu(Box::new(menu))
+                                .build()
+                            {
+                                Ok(icon) => icon,
+                                Err(err) => {
+                                    log::error!("Failed to spawn Tray: {err}");
+                                    panic!("Failed to spawn Tray: {err}");
+                                }
+                            };
+
+                            {
+                                let quit_mut = self.quit_mut.clone();
+                                let open = open.into_id();
+                                let quit = quit.into_id();
+                                tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
+                                    let ctx = ctx.lock();
+                                    if v.id == quit {
+                                        *quit_mut.lock() = true;
+                                        open_var.notify_all();
+                                        if let Some(ctx) = &*ctx {
+                                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                        }
+                                    }
+                                    if v.id == open {
+                                        open_var.notify_all();
+                                        if let Some(ctx) = &*ctx {
+                                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                                        }
+                                    }
+                                }))
+                            }
+                        }
+                    }
+                    self.app.new_events(event_loop, cause);
+                }
+
+                fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+                    self.app.resumed(event_loop);
+                }
+
+                fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+                    self.app.user_event(event_loop, event);
+                }
+
+                fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+                    self.app.window_event(event_loop, window_id, event);
+                }
+
+                fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
+                    self.app.device_event(event_loop, device_id, event);
+                }
+
+                fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+                    self.app.about_to_wait(event_loop);
+                }
+
+                fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+                    self.app.suspended(event_loop);
+                }
+
+                fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+                    self.app.exiting(event_loop);
+                }
+
+                fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+                    self.app.memory_warning(event_loop);
+                }
+            }
+            let cc = Arc::new(parking_lot::Mutex::new(None));
+
+            macro_rules! start_app {
+                ()=>{
+                    eframe::create_native(
+                        "DexProtectOSC-RS",
+                        eframe::NativeOptions{
+                            viewport: egui::ViewportBuilder::default()
+                                .with_icon(Arc::<egui::IconData>::new(icon::ICON_BYTES.into())),
+                            ..Default::default()
+                        },
+                        Box::new(|cc_r| {
+                            *cc.lock() = Some(cc_r.egui_ctx.clone());
+                            let cc = cc_r;
+
+                            #[cfg(feature = "tray")]
+                            {
+                                FIRST_START.call_once(||{
+                                    if !args.start_minimized
+                                    {
+                                        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+                                })
+                            }
+                            let data = {
+                                let mut data = app_data.lock();
+                                data.get_or_insert_with(||Arc::new(parking_lot::Mutex::new(app::App::new(args.clone(), quit_mut.clone(), collector.clone(), cc, runtime.clone())))).clone()
+                            };
+                            Ok(Box::new(Wrap(data.lock_arc())))
+                        }),
+                        &event_loop,
+                    )
+                }
+            }
+
+            let mut app = App {
+                cc: cc.clone(),
+                quit_mut: quit_mut.clone(),
+                open_var: open.clone(),
+                app: start_app!(),
+                #[cfg(feature="tray")]
+                icon: false,
+            };
+            let open_mtx = std::sync::Mutex::new(true);
+            let mut lock = open_mtx.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            struct Wrap<T>(T);
+            impl<T> eframe::App for Wrap<T>
+            where
+                T: core::ops::DerefMut,
+                T::Target: eframe::App
+            {
+                fn logic(&mut self, ctx: &Context, frame: &mut Frame) {
+                    self.0.logic(ctx, frame)
+                }
+
+                fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
+                    self.0.logic(ui, frame)
+                }
+
+                fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+                    #[expect(deprecated)]
+                    {
+                        self.0.update(ctx, frame)
+                    }
+                }
+
+                fn save(&mut self, _storage: &mut dyn Storage) {
+                    self.0.save(_storage)
+                }
+
+                fn on_exit(&mut self) {
+                    self.0.on_exit()
+                }
+
+                fn auto_save_interval(&self) -> Duration {
+                    self.0.auto_save_interval()
+                }
+
+                fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
+                    self.0.clear_color(_visuals)
+                }
+
+                fn persist_egui_memory(&self) -> bool {
+                    self.0.persist_egui_memory()
+                }
+
+                fn raw_input_hook(&mut self, _ctx: &Context, _raw_input: &mut RawInput) {
+                    self.0.raw_input_hook(_ctx, _raw_input)
+                }
+            }
+
+            #[cfg(feature = "tray")]
+            static FIRST_START:std::sync::Once = std::sync::Once::new();
+
+            loop {
+                if *quit_mut.lock() {
+                    break;
+                }
+                if *lock {
+                    app.app = start_app!();
+                }
+                event_loop.run_app_on_demand(&mut app)?;
+                *cc.lock() = None;
+                lock = open.wait(lock).unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
 
             println!("GUI exited. Thank you for using DexProtectOSC-RS!");
             return Ok(());

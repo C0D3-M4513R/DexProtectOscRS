@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 authors = ["C0D3 M4513R"]
 #publish = ["forgejo-code-rust"]
+#build = "build.rs"
 
 [badges]
 # The `maintenance` table indicates the status of the maintenance of
@@ -38,6 +39,7 @@ egui_tracing = { version = "0.3" , optional = true}
 egui_extras = { version = "0.34" , optional = true}
 egui = { version = "0.34" , optional = true}
 eframe = { version = "0.34", features = [ "persistence"], optional = true }
+winit = "0.30.13"
 
 #https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
 #https://github.com/tauri-apps/tray-icon/issues/261
@@ -56,7 +58,7 @@ serde = "1"
 
 #async driver
 tokio = { version = "1", features = ["full"] }
-parking_lot = "0.12.5"
+parking_lot = { version = "0.12.5", features = ["arc_lock"] }
 futures = "0.3"
 
 #osc
@@ -79,7 +81,6 @@ clap_derive = "4.6.1"
 
 app_macro = {path = "../app_macro"}
 phf = { version = "0.13.1", features = ["macros"], optional = true }
-
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", default-features = false, features = ["std", "Win32_System_Console"]}

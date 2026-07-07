@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -15,6 +16,26 @@ pub enum OscSender {
     },
     #[cfg(feature = "oscquery")]
     OscQuery { query: Arc<vrchat_osc::VRChatOSC> }
+}
+impl Debug for OscSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OSC {
+                osc_send,
+                send_location,
+            } => {
+                f.debug_struct("OscSender::Osc")
+                    .field("osc_send", osc_send)
+                    .field("send_location", send_location)
+                    .finish()
+            },
+            Self::OscQuery { query: _ } => {
+                f.debug_struct("OscSender::OscQuery")
+                    .field("query", &"<no debug impl>")
+                    .finish()
+            }
+        }
+    }
 }
 impl OscSender {
     pub async fn send(self, packet: OscPacket, names: Option<Arc<[Arc<str>]>>) -> anyhow::Result<()> {

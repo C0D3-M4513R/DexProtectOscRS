@@ -36,6 +36,7 @@ impl AppData {
     pub fn merge_data(mut self, data:&Args) -> Self {
         #[cfg(feature = "tray")]
         if data.start_minimized { self.auto_connect_launch = true; }
+        #[cfg(feature = "oscquery")]
         if let Some(use_oscquery) = data.osc.use_oscquery { self.use_oscquery = use_oscquery; }
         if let Some(recv) = data.osc.recv { self.recv_ip = recv.ip().to_string(); self.osc_recv_port = recv.port(); }
         if let Some(send) = data.osc.send { self.send_ip = send.ip().to_string(); self.osc_send_port = send.port(); }
@@ -62,9 +63,6 @@ pub struct App<'a>{
     osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
-    #[cfg(feature = "tray")]
-    #[allow(dead_code)]
-    icon: tray_icon::TrayIcon,
     #[cfg(feature = "tray")]
     quit: Arc<parking_lot::Mutex<bool>>,
 }
@@ -146,7 +144,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
 impl<'a> App<'a> {
     /// Called once before the first frame.
-    pub fn new(args: crate::Args, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(args: crate::Args, quit_mut: Arc<parking_lot::Mutex<bool>>, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -164,67 +162,6 @@ impl<'a> App<'a> {
         #[cfg(not(debug_assertions))]
         log::info!("You are running a release build. Some log statements were disabled.");
 
-        let quit_mut = Arc::new(parking_lot::Mutex::new(false));
-
-        {
-            let quit_mut = quit_mut.clone();
-            let cc = cc.egui_ctx.clone();
-            runtime.spawn(async move {
-                if let Err(err) = tokio::signal::ctrl_c().await {
-                    log::error!("Failed to listen for Ctrl-C: {err}");
-                }
-                tracing::info!("Received Ctrl-C. Exiting!");
-                *quit_mut.lock() = true;
-                cc.send_viewport_cmd(egui::ViewportCommand::Close);
-            });
-        }
-
-
-        #[cfg(feature="tray")]
-        let icon = {
-            let ctx = cc.egui_ctx.clone();
-            let icon = &crate::icon::ICON_BYTES;
-            let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
-            let menu = tray_icon::menu::Menu::new();
-            let open = tray_icon::menu::MenuItem::new("Open", true, None);
-            let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
-            menu.append_items(&[&open, &quit]).expect("Failed to build menu");
-
-            let icon = match tray_icon::TrayIconBuilder::new()
-                .with_icon(tray_icon)
-                .with_menu(Box::new(menu))
-                .build()
-            {
-                Ok(icon) => icon,
-                Err(err) => {
-                    log::error!("Failed to spawn Tray: {err}");
-                    panic!("Failed to spawn Tray: {err}");
-                }
-            };
-
-            {
-                let quit_mut = quit_mut.clone();
-                let open = open.into_id();
-                let quit = quit.into_id();
-                tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
-                    if v.id == quit {
-                        *quit_mut.lock() = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    if v.id == open {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    }
-                }))
-            }
-
-            icon
-        };
-
-        #[cfg(feature="tray")]
-        if args.start_minimized {
-            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        }
-
         let mut slf = Self {
             collector,
             data,
@@ -236,8 +173,6 @@ impl<'a> App<'a> {
             osc_join_set: None,
             popups: Default::default(),
             runtime,
-            #[cfg(feature="tray")]
-            icon,
             #[cfg(feature="tray")]
             quit: quit_mut
         };
@@ -519,16 +454,6 @@ impl<'a> App<'a> {
 
 impl<'a> eframe::App for App<'a> {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        #[cfg(feature = "tray")]
-        {
-            let quit = *self.quit.lock();
-            if ctx.input(|v|v.viewport().close_requested()){
-                if !quit {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                }
-            }
-        }
         self.check_osc_thread(ctx);
     }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
