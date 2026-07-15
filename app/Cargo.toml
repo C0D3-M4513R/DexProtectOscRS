@@ -36,9 +36,9 @@ maintenance = { status = "passively-maintained" }
 #gui stuff
 rfd = {version = "0.17", optional = true}
 egui_tracing = { version = "0.3" , optional = true}
-egui_extras = { version = "0.34" , optional = true}
-egui = { version = "0.34" , optional = true}
-eframe = { version = "0.34", features = [ "persistence"], optional = true }
+egui_extras = { version = "0.35" , optional = true}
+egui = { version = "0.35" , optional = true}
+eframe = { version = "0.35", features = [ "persistence"], optional = true }
 winit = "0.30.13"
 
 #https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
@@ -65,8 +65,8 @@ futures = "0.3"
 vrchat_osc = {version = "3.0.0", registry = "forgejo-code-rust", optional = true}
 rosc = "0.11.4"
 nom = "7.0.0"
-network-handler = {version = "0.3.0", registry = "forgejo-code-rust"}
-network-handler-listener-osc-tokio = {version = "0.1.0", registry = "forgejo-code-rust"}
+network-handler = {version = "0.3.0", registry = "forgejo-code-rust", features = ["alloc", "osc"]}
+network-handler-listener-osc-tokio = {version = "0.1.1", registry = "forgejo-code-rust"}
 unicode-bom = "2"
 
 #cypher

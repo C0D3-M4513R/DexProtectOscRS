@@ -457,7 +457,7 @@ impl<'a> eframe::App for App<'a> {
         self.check_osc_thread(ctx);
     }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             //create immutable copies
             let dex_protect_enabled = self.dex_protect_enabled;
             let osc_multiplexer_enabled = self.osc_multiplexer_enabled;

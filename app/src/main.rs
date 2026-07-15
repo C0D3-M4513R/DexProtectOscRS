@@ -446,13 +446,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                     self.0.logic(ui, frame)
                 }
 
-                fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-                    #[expect(deprecated)]
-                    {
-                        self.0.update(ctx, frame)
-                    }
-                }
-
                 fn save(&mut self, _storage: &mut dyn Storage) {
                     self.0.save(_storage)
                 }
