@@ -30,6 +30,8 @@ pub struct AppData{
     dex_protect_enabled: bool,
     osc_multiplexer_sockets: Vec<(String, u16)>,
     osc_create_data: OscCreateData,
+    #[cfg(feature = "tray")]
+    quit_to_tray: bool,
 }
 
 impl AppData {
@@ -64,7 +66,7 @@ pub struct App<'a>{
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
     #[cfg(feature = "tray")]
-    quit: Arc<parking_lot::Mutex<bool>>,
+    quit: Arc<parking_lot::Mutex<crate::State>>,
 }
 impl<'a> Debug for App<'a>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -113,6 +115,7 @@ impl Default for AppData{
             dex_protect_enabled: true,
             osc_multiplexer_sockets: Vec::new(),
             osc_create_data: OscCreateData::default(),
+            quit_to_tray: true,
         }
     }
 }
@@ -144,7 +147,7 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
 impl<'a> App<'a> {
     /// Called once before the first frame.
-    pub fn new(args: crate::Args, quit_mut: Arc<parking_lot::Mutex<bool>>, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(args: crate::Args, quit_mut: Arc<parking_lot::Mutex<crate::State>>, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -366,14 +369,14 @@ impl<'a> App<'a> {
         #[cfg(feature = "tray")]
         {
             ui.heading("Generic Controls:");
-            let mut quit = self.quit.lock();
             ui.horizontal(|ui|{
                 ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
-                ui.checkbox(&mut*quit, ());
+                ui.checkbox(&mut self.data.quit_to_tray, ());
             });
             if ui.button("Quit Immediately").clicked() {
-                *quit = true;
+                *self.quit.lock() = crate::State::Quitting;
                 ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                ui.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
             }
         }
         ui.add_space(16.);
@@ -454,6 +457,9 @@ impl<'a> App<'a> {
 
 impl<'a> eframe::App for App<'a> {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if !self.data.quit_to_tray && ctx.input(|v|v.viewport().close_requested()) {
+            *self.quit.lock() = crate::State::Quitting;
+        }
         self.check_osc_thread(ctx);
     }
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {

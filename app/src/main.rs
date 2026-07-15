@@ -5,13 +5,13 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use clap::Parser;
 use eframe::{Frame, Storage, UserEvent};
 use egui::{Context, RawInput, Ui, Visuals};
 use serde_derive::{Deserialize, Serialize};
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
 use winit::window::WindowId;
 
@@ -255,6 +255,13 @@ fn init_logging(collector: &Collector) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub(crate) enum State {
+    Hidden,
+    Open,
+    Quitting,
+}
 fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
     #[cfg(not(feature = "gui"))]
     {
@@ -271,8 +278,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
         if let Some(collector) = collector {
             let mut event_loop = winit::event_loop::EventLoop::with_user_event()
                 .build()?;
-
-            let quit_mut = Arc::new(parking_lot::Mutex::new(false));
+            let quit_mut = Arc::new(parking_lot::Mutex::new(State::Open));
             let app_data = Arc::new(parking_lot::Mutex::new(None));
             #[cfg(feature="tray")]
             let cc = Arc::new(tokio::sync::Mutex::new(None::<egui::Context>));
@@ -280,33 +286,43 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
             {
                 let quit_mut = quit_mut.clone();
                 let cc = cc.clone();
+                let event_loop = event_loop.create_proxy();
                 runtime.spawn(async move {
                     if let Err(err) = tokio::signal::ctrl_c().await {
                         log::error!("Failed to listen for Ctrl-C: {err}");
                     }
                     tracing::info!("Received Ctrl-C. Exiting!");
-                    *quit_mut.lock() = true;
+                    *quit_mut.lock() = State::Quitting;
                     if let Some(cc) = &*cc.lock().await {
                         cc.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
+                    event_loop.send_event(eframe::UserEvent::RequestRepaint {
+                        viewport_id: egui::ViewportId::ROOT,
+                        when: Instant::now(),
+                        cumulative_pass_nr: u64::MAX,
+                    })
                 });
             }
 
             let open = Arc::new(std::sync::Condvar::new());
+            let app = Arc::new(parking_lot::Mutex::new(None));
 
             struct App<'a>{
                 cc: Arc<parking_lot::Mutex<Option<egui::Context>>>,
-                quit_mut: Arc<parking_lot::Mutex<bool>>,
+                state: Arc<parking_lot::Mutex<State>>,
                 open_var: Arc<std::sync::Condvar>,
                 #[cfg(feature="tray")]
                 icon: bool,
-                app: eframe::EframeWinitApplication<'a>,
+                #[cfg(feature="tray")]
+                proxy: winit::event_loop::EventLoopProxy<UserEvent>,
+                app: Arc<parking_lot::Mutex<Option<eframe::EframeWinitApplication<'a>>>>,
             }
             impl<'a> winit::application::ApplicationHandler<eframe::UserEvent> for App<'a> {
                 fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
                     #[cfg(feature="tray")]
                     {
-                        if cause == winit::event::StartCause::Init && !self.icon {
+                        if cause == winit::event::StartCause::Init {
+                            log::info!("starting tray icon");
                             self.icon = true;
                             let ctx = self.cc.clone();
                             let open_var = self.open_var.clone();
@@ -330,19 +346,29 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                             };
 
                             {
-                                let quit_mut = self.quit_mut.clone();
+                                let proxy = self.proxy.clone();
+                                let state = self.state.clone();
                                 let open = open.into_id();
                                 let quit = quit.into_id();
                                 tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
                                     let ctx = ctx.lock();
                                     if v.id == quit {
-                                        *quit_mut.lock() = true;
-                                        open_var.notify_all();
                                         if let Some(ctx) = &*ctx {
                                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                         }
+                                        *state.lock() = State::Quitting;
+                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX}) {
+                                            log::error!("Failed to notify EventLoop about App State change: {e}");
+                                        }
+                                        open_var.notify_all();
                                     }
                                     if v.id == open {
+                                        {
+                                            let mut lock = state.lock();
+                                            if *lock != State::Quitting {
+                                                *lock = State::Open;
+                                            }
+                                        }
                                         open_var.notify_all();
                                         if let Some(ctx) = &*ctx {
                                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -352,45 +378,60 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                             }
                         }
                     }
-                    self.app.new_events(event_loop, cause);
+
+                    if cause == StartCause::Init {
+                        event_loop.set_control_flow(ControlFlow::Wait);
+                    }
+                    if let Some(app) = &mut *self.app.lock() { app.new_events(event_loop, cause); }
                 }
 
                 fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-                    self.app.resumed(event_loop);
+                    if let Some(app) = &mut *self.app.lock() { app.resumed(event_loop); }
                 }
 
                 fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-                    self.app.user_event(event_loop, event);
+                    if let UserEvent::RequestRepaint {viewport_id, when: _, cumulative_pass_nr} = event && viewport_id == egui::ViewportId::ROOT {
+                        match cumulative_pass_nr {
+                            u64::MAX => {
+                                log::info!("Requesting exit from Event Loop");
+                                event_loop.exit();
+                                return;
+                            }
+                            _ => {},
+                        }
+                    }
+                    if let Some(app) = &mut *self.app.lock() { app.user_event(event_loop, event); }
                 }
 
                 fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
-                    self.app.window_event(event_loop, window_id, event);
+                    if let Some(app) = &mut *self.app.lock() { app.window_event(event_loop, window_id, event); }
                 }
 
                 fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
-                    self.app.device_event(event_loop, device_id, event);
+                    if let Some(app) = &mut *self.app.lock() { app.device_event(event_loop, device_id, event); }
                 }
 
                 fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-                    self.app.about_to_wait(event_loop);
+                    if let Some(app) = &mut *self.app.lock() { app.about_to_wait(event_loop); }
                 }
 
                 fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-                    self.app.suspended(event_loop);
+                    if let Some(app) = &mut *self.app.lock() { app.suspended(event_loop); }
                 }
 
                 fn exiting(&mut self, event_loop: &ActiveEventLoop) {
-                    self.app.exiting(event_loop);
+                    if let Some(app) = &mut *self.app.lock() { app.exiting(event_loop); }
                 }
 
                 fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
-                    self.app.memory_warning(event_loop);
+                    if let Some(app) = &mut *self.app.lock() { app.memory_warning(event_loop); }
                 }
             }
             let cc = Arc::new(parking_lot::Mutex::new(None));
 
             macro_rules! start_app {
-                ()=>{
+                ()=>{{
+                    let cc_ref = cc.clone();
                     eframe::create_native(
                         "DexProtectOSC-RS",
                         eframe::NativeOptions{
@@ -398,16 +439,17 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                                 .with_icon(Arc::<egui::IconData>::new(icon::ICON_BYTES.into())),
                             ..Default::default()
                         },
-                        Box::new(|cc_r| {
-                            *cc.lock() = Some(cc_r.egui_ctx.clone());
-                            let cc = cc_r;
+                        Box::new(|cc| {
+                            let cc_ref = cc_ref;
+                            *cc_ref.lock() = Some(cc.egui_ctx.clone());
 
                             #[cfg(feature = "tray")]
                             {
                                 FIRST_START.call_once(||{
-                                    if !args.start_minimized
+                                    if args.start_minimized
                                     {
                                         cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                        *quit_mut.lock() = State::Hidden;
                                     }
                                 })
                             }
@@ -419,19 +461,19 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                         }),
                         &event_loop,
                     )
-                }
+                }}
             }
 
             let mut app = App {
                 cc: cc.clone(),
-                quit_mut: quit_mut.clone(),
+                state: quit_mut.clone(),
                 open_var: open.clone(),
-                app: start_app!(),
+                app: app.clone(),
                 #[cfg(feature="tray")]
                 icon: false,
+                #[cfg(feature="tray")]
+                proxy: event_loop.create_proxy(),
             };
-            let open_mtx = std::sync::Mutex::new(true);
-            let mut lock = open_mtx.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             struct Wrap<T>(T);
             impl<T> eframe::App for Wrap<T>
             where
@@ -475,15 +517,19 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
             static FIRST_START:std::sync::Once = std::sync::Once::new();
 
             loop {
-                if *quit_mut.lock() {
-                    break;
-                }
-                if *lock {
-                    app.app = start_app!();
+                {
+                    match *quit_mut.lock() {
+                        State::Quitting => break,
+                        State::Open => {
+                            *app.app.lock() = Some(start_app!())
+                        },
+                        State::Hidden => {},
+                    }
                 }
                 event_loop.run_app_on_demand(&mut app)?;
+                *app.app.lock() = None;
                 *cc.lock() = None;
-                lock = open.wait(lock).unwrap_or_else(std::sync::PoisonError::into_inner);
+                // lock = open.wait(lock).unwrap_or_else(std::sync::PoisonError::into_inner);
             }
 
             println!("GUI exited. Thank you for using DexProtectOSC-RS!");
