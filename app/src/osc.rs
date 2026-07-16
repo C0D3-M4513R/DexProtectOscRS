@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,6 +10,7 @@ pub static ALL_VRCHAT_CLIENTS:&'static str = "VRChat-Client-*";
 pub static VRCHAT_AVATAR_CHANGE:&'static str = "/avatar/change";
 
 pub use sender::OscSender;
+use crate::osc::dex::{ArcDexOscHandler, DexOscHandler};
 
 mod sender;
 mod dex;
@@ -221,8 +222,9 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
         OscSender::OscQuery {query: vrcoscquery} => {
             static SERVICE_NAME:&'static str = "DexProtectOscRs";
             {
-                let dex = dex.clone();
-                let osc_c= vrcoscquery.clone();
+                // store as weak to prevent an arc-cycle
+                let dex = dex.as_ref().map(|v|Arc::downgrade(v));
+                let osc_c= Arc::downgrade(&vrcoscquery);
                 vrcoscquery.on_connect(move |type_|match type_ {
                     vrchat_osc::ServiceType::Osc(name, addr) => {
                         log::info!("Connected via Osc to {name} on {addr}");
@@ -251,6 +253,10 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                                         }
                                         counter += 1;
 
+                                        let osc = match osc.upgrade(){
+                                            None => return,
+                                            Some(v) => v,
+                                        };
                                         match osc
                                             .get_parameter_from_addr(VRCHAT_AVATAR_CHANGE, addr)
                                             .await
@@ -267,7 +273,9 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                                         Some(vrchat_osc::models::OscValue::String(v)) => v,
                                         _ => return,
                                     };
-                                    dex.handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)]))).await
+                                    if let Some(v) = dex.upgrade() {
+                                        ArcDexOscHandler(v).handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)]))).await
+                                    }
                                 });
                             }
                         }
@@ -345,12 +353,21 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
             if let Err(_) = shutdown.await {
                 log::warn!("Osc Shutdown Notifier got dropped, before sending a message?")
             }
+            log::debug!("OscQuery Strong arc count: {}", Arc::strong_count(&vrcoscquery));
+            if let Some(dex) = &dex { log::debug!("DexProtectOsc Strong arc count: {}", Arc::strong_count(&dex.0)); }
+
             if let Err(err) = vrcoscquery.shutdown().await {
                 log::error!("Error during OscQuery shutdown: {err}");
             }
 
-            tokio::time::sleep(Duration::from_millis(15)).await;
-            stop_dex(dex).await;
+            log::debug!("OscQuery Strong arc count: {}", Arc::strong_count(&vrcoscquery));
+            if let Some(dex) = &dex { log::debug!("DexProtectOsc Strong arc count: {}", Arc::strong_count(&dex.0)); }
+
+            tokio::join!(async {
+                let weak = Arc::downgrade(&vrcoscquery);
+                drop(vrcoscquery);
+                wait_arc(weak, "OscQuery").await
+            }, stop_dex(dex));
             log::info!("Stopped OscQuery and Osc Listener.");
             Ok(())
         }
@@ -379,25 +396,27 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
     }
 
 }
-
 async fn stop_dex(dex: Option<dex::ArcDexOscHandler>) {
     if let Some(dex) = dex {
         drop(dex.stop().await);
-        let dex_weak = Arc::downgrade(&dex.0);
+        let weak = Arc::downgrade(&dex.0);
         drop(dex);
-        let mut i = 0;
-        let mut new_i = dex_weak.strong_count();
-        loop {
-            if new_i <= 0 {
-                break;
-            }
-            if new_i != i {
-                tracing::debug!("{new_i} references to DexOscHandler got leaked");
-            }
-            i = new_i;
-
-            tokio::time::sleep(Duration::from_millis(15)).await;
-            new_i = dex_weak.strong_count();
+        wait_arc(weak, "DexProtectOsc").await;
+    }
+}
+async fn wait_arc<T>(weak: Weak<T>, name: &'static str) {
+    let mut i = 0;
+    let mut new_i = weak.strong_count();
+    loop {
+        if new_i <= 0 {
+            break;
         }
+        if new_i != i {
+            tracing::debug!("{new_i} references to {name} got leaked");
+        }
+        i = new_i;
+
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        new_i = weak.strong_count();
     }
 }
