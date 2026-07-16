@@ -30,7 +30,7 @@ pub struct AppData{
     osc_multiplexer_sockets: Vec<(String, u16)>,
     osc_create_data: OscCreateData,
     #[cfg(feature = "tray")]
-    quit_to_tray: bool,
+    quit_to_quit: bool,
 }
 
 impl AppData {
@@ -114,7 +114,7 @@ impl Default for AppData{
             osc_multiplexer_sockets: Vec::new(),
             osc_create_data: OscCreateData::default(),
             #[cfg(feature = "tray")]
-            quit_to_tray: true,
+            quit_to_quit: false,
         }
     }
 }
@@ -374,7 +374,7 @@ impl<'a> App<'a> {
             ui.heading("Generic Controls:");
             ui.horizontal(|ui|{
                 ui.label("Quit when pressing exit (instead of Hiding to Tray): ");
-                ui.checkbox(&mut self.data.quit_to_tray, ());
+                ui.checkbox(&mut self.data.quit_to_quit, ());
             });
             if ui.button("Quit Immediately").clicked() {
                 *self.quit.lock() = crate::State::Quitting;
@@ -467,7 +467,7 @@ impl<'a> eframe::App for App<'a> {
             }
             #[cfg(feature = "tray")]
             {
-                if !self.data.quit_to_tray {
+                if self.data.quit_to_quit {
                     *self.quit.lock() = crate::State::Quitting;
                 } else {
                     let mut state = self.quit.lock();
