@@ -279,7 +279,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
         if let Some(collector) = collector {
             let mut event_loop = winit::event_loop::EventLoop::with_user_event()
                 .build()?;
-            event_loop.set_control_flow(ControlFlow::Poll);
             let quit_mut = Arc::new(parking_lot::Mutex::new(State::Open));
             let app_data = Arc::new(parking_lot::Mutex::new(None));
             #[cfg(feature="tray")]
@@ -393,6 +392,12 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                         if cause == StartCause::Init {
                             self.spawn_icon();
                         }
+                    }
+                    match cause {
+                        StartCause::Poll => {
+                            event_loop.set_control_flow(ControlFlow::Wait);
+                        }
+                        _ => {},
                     }
 
                     if let Some(app) = &mut *self.app.lock() { app.new_events(event_loop, cause); }
