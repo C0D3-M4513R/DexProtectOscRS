@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut, IndexMut};
 use std::path::PathBuf;
@@ -62,7 +61,6 @@ pub struct App<'a>{
     osc_multiplexer_port_popup: Option<Box<PopupFunc<'a>>>,
     stop_osc: Option<tokio::sync::oneshot::Sender<()>>,
     osc_thread: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
-    osc_join_set: Option<tokio::task::JoinSet<Infallible>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
     #[cfg(feature = "tray")]
@@ -79,7 +77,6 @@ impl<'a> Debug for App<'a>{
             .field("osc_multiplexer_port_popup.is_some()", &self.osc_multiplexer_port_popup.is_some())
             .field("stop_osc", &self.stop_osc)
             .field("osc_thread", &self.osc_thread)
-            .field("osc_join_set", &self.osc_join_set)
             .field("popups.len()", &self.popups.len())
             .finish()
     }
@@ -173,7 +170,6 @@ impl<'a> App<'a> {
             osc_multiplexer_port_popup: None,
             stop_osc: None,
             osc_thread: None,
-            osc_join_set: None,
             popups: Default::default(),
             runtime,
             #[cfg(feature="tray")]
@@ -531,6 +527,30 @@ impl<'a> eframe::App for App<'a> {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage,eframe::APP_KEY, &self.data)
+    }
+}
+impl<'a> Drop for App<'a> {
+    fn drop(&mut self) {
+        if let Some(jh) = self.stop_osc() {
+            match self.runtime.block_on(jh) {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => {
+                    log::error!("OSC thread reported an error: {e}");
+                },
+                Err(e) => {
+                    log::error!("Osc Thread Panicked whilst stopping: {e}");
+                }
+            }
+        }
+        if let Some(jh) = self.file_picker_thread.take() {
+            jh.abort();
+            match self.runtime.block_on(jh) {
+                Ok(_) => {},
+                Err(e) => {
+                    log::error!("File Picker Thread Panicked whilst stopping: {e}");
+                }
+            }
+        }
     }
 }
 type PopupFunc<'a> = dyn FnMut(&'_ mut App,&'_ mut egui::Ui, &'_ mut eframe::Frame) -> bool + 'a + Send;

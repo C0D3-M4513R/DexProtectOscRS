@@ -278,10 +278,11 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
         if let Some(collector) = collector {
             let mut event_loop = winit::event_loop::EventLoop::with_user_event()
                 .build()?;
+            event_loop.set_control_flow(ControlFlow::Poll);
             let quit_mut = Arc::new(parking_lot::Mutex::new(State::Open));
             let app_data = Arc::new(parking_lot::Mutex::new(None));
             #[cfg(feature="tray")]
-            let cc = Arc::new(tokio::sync::Mutex::new(None::<egui::Context>));
+            let cc = Arc::new(tokio::sync::Mutex::new(None::<Context>));
 
             {
                 let quit_mut = quit_mut.clone();
@@ -361,8 +362,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                                             log::error!("Failed to notify EventLoop about App State change: {e}");
                                         }
                                         open_var.notify_all();
-                                    }
-                                    if v.id == open {
+                                    } else if v.id == open {
                                         {
                                             let mut lock = state.lock();
                                             if *lock != State::Quitting {
@@ -373,15 +373,20 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                                         if let Some(ctx) = &*ctx {
                                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                                         }
+                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX-1}) {
+                                            log::error!("Failed to notify EventLoop about App State change: {e}");
+                                        }
+                                    }
+                                    else {
+                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX-1}) {
+                                            log::error!("Failed to notify EventLoop about App State change: {e}");
+                                        }
                                     }
                                 }))
                             }
                         }
                     }
 
-                    if cause == StartCause::Init {
-                        event_loop.set_control_flow(ControlFlow::Wait);
-                    }
                     if let Some(app) = &mut *self.app.lock() { app.new_events(event_loop, cause); }
                 }
 
@@ -391,12 +396,15 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
 
                 fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
                     if let UserEvent::RequestRepaint {viewport_id, when: _, cumulative_pass_nr} = event && viewport_id == egui::ViewportId::ROOT {
+                        const RET:u64 = u64::MAX;
+                        const NOOP:u64 = u64::MAX-1;
                         match cumulative_pass_nr {
-                            u64::MAX => {
+                            RET => {
                                 log::info!("Requesting exit from Event Loop");
                                 event_loop.exit();
                                 return;
                             }
+                            NOOP => return,
                             _ => {},
                         }
                     }
