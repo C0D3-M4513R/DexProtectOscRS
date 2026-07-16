@@ -63,7 +63,6 @@ pub struct App<'a>{
     osc_thread: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     popups: VecDeque<Box<PopupFunc<'a>>>,
     runtime: Arc<tokio::runtime::Runtime>,
-    #[cfg(feature = "tray")]
     quit: Arc<parking_lot::Mutex<crate::State>>,
 }
 impl<'a> Debug for App<'a>{
@@ -78,6 +77,8 @@ impl<'a> Debug for App<'a>{
             .field("stop_osc", &self.stop_osc)
             .field("osc_thread", &self.osc_thread)
             .field("popups.len()", &self.popups.len())
+            .field("runtime", &self.runtime)
+            .field("quit", &self.quit)
             .finish()
     }
 }
@@ -112,6 +113,7 @@ impl Default for AppData{
             dex_protect_enabled: true,
             osc_multiplexer_sockets: Vec::new(),
             osc_create_data: OscCreateData::default(),
+            #[cfg(feature = "tray")]
             quit_to_tray: true,
         }
     }
@@ -144,7 +146,13 @@ impl<'a> TryFrom<&App<'a>> for OscCreateData {
 
 impl<'a> App<'a> {
     /// Called once before the first frame.
-    pub fn new(args: crate::Args, quit_mut: Arc<parking_lot::Mutex<crate::State>>, collector: egui_tracing::EventCollector, cc: &eframe::CreationContext<'_>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(
+        args: crate::Args,
+        quit_mut: Arc<parking_lot::Mutex<crate::State>>,
+        collector: egui_tracing::EventCollector,
+        cc: &eframe::CreationContext<'_>,
+        runtime: Arc<tokio::runtime::Runtime>
+    ) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -172,7 +180,6 @@ impl<'a> App<'a> {
             osc_thread: None,
             popups: Default::default(),
             runtime,
-            #[cfg(feature="tray")]
             quit: quit_mut
         };
 
@@ -453,8 +460,22 @@ impl<'a> App<'a> {
 
 impl<'a> eframe::App for App<'a> {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if !self.data.quit_to_tray && ctx.input(|v|v.viewport().close_requested()) {
-            *self.quit.lock() = crate::State::Quitting;
+        if ctx.input(|v|v.viewport().close_requested()) {
+            #[cfg(not(feature = "tray"))]
+            {
+                *self.quit.lock() = crate::State::Quitting;
+            }
+            #[cfg(feature = "tray")]
+            {
+                if !self.data.quit_to_tray {
+                    *self.quit.lock() = crate::State::Quitting;
+                } else {
+                    let mut state = self.quit.lock();
+                    if *state != crate::State::Quitting {
+                        *state = crate::State::Hidden;
+                    }
+                }
+            }
         }
         self.check_osc_thread(ctx);
     }

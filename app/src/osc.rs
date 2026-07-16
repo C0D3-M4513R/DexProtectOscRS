@@ -10,7 +10,7 @@ pub static ALL_VRCHAT_CLIENTS:&'static str = "VRChat-Client-*";
 pub static VRCHAT_AVATAR_CHANGE:&'static str = "/avatar/change";
 
 pub use sender::OscSender;
-use crate::osc::dex::{ArcDexOscHandler, DexOscHandler};
+use crate::osc::dex::ArcDexOscHandler;
 
 mod sender;
 mod dex;

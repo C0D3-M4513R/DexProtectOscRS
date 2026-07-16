@@ -258,6 +258,7 @@ fn init_logging(collector: &Collector) -> anyhow::Result<()> {
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum State {
+    #[cfg(feature = "tray")]
     Hidden,
     Open,
     Quitting,
@@ -282,10 +283,11 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
             let quit_mut = Arc::new(parking_lot::Mutex::new(State::Open));
             let app_data = Arc::new(parking_lot::Mutex::new(None));
             #[cfg(feature="tray")]
-            let cc = Arc::new(tokio::sync::Mutex::new(None::<Context>));
+            let cc = Arc::new(parking_lot::Mutex::new(None::<Context>));
 
             {
                 let quit_mut = quit_mut.clone();
+                #[cfg(feature="tray")]
                 let cc = cc.clone();
                 let event_loop = event_loop.create_proxy();
                 runtime.spawn(async move {
@@ -294,7 +296,8 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                     }
                     tracing::info!("Received Ctrl-C. Exiting!");
                     *quit_mut.lock() = State::Quitting;
-                    if let Some(cc) = &*cc.lock().await {
+                    #[cfg(feature="tray")]
+                    if let Some(cc) = &*cc.lock() {
                         cc.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     event_loop.send_event(eframe::UserEvent::RequestRepaint {
@@ -305,13 +308,13 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 });
             }
 
-            let open = Arc::new(std::sync::Condvar::new());
             let app = Arc::new(parking_lot::Mutex::new(None));
 
             struct App<'a>{
+                #[cfg(feature = "tray")]
                 cc: Arc<parking_lot::Mutex<Option<egui::Context>>>,
+                #[cfg(feature = "tray")]
                 state: Arc<parking_lot::Mutex<State>>,
-                open_var: Arc<std::sync::Condvar>,
                 #[cfg(feature="tray")]
                 icon: bool,
                 #[cfg(feature="tray")]
@@ -326,7 +329,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                             log::info!("starting tray icon");
                             self.icon = true;
                             let ctx = self.cc.clone();
-                            let open_var = self.open_var.clone();
                             let icon = &crate::icon::ICON_BYTES;
                             let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
                             let menu = tray_icon::menu::Menu::new();
@@ -361,7 +363,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                                         if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX}) {
                                             log::error!("Failed to notify EventLoop about App State change: {e}");
                                         }
-                                        open_var.notify_all();
                                     } else if v.id == open {
                                         {
                                             let mut lock = state.lock();
@@ -369,7 +370,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                                                 *lock = State::Open;
                                             }
                                         }
-                                        open_var.notify_all();
                                         if let Some(ctx) = &*ctx {
                                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                                         }
@@ -435,10 +435,10 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                     if let Some(app) = &mut *self.app.lock() { app.memory_warning(event_loop); }
                 }
             }
-            let cc = Arc::new(parking_lot::Mutex::new(None));
 
             macro_rules! start_app {
                 ()=>{{
+                    #[cfg(feature = "tray")]
                     let cc_ref = cc.clone();
                     eframe::create_native(
                         "DexProtectOSC-RS",
@@ -448,11 +448,10 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                             ..Default::default()
                         },
                         Box::new(|cc| {
-                            let cc_ref = cc_ref;
-                            *cc_ref.lock() = Some(cc.egui_ctx.clone());
-
                             #[cfg(feature = "tray")]
                             {
+                                let cc_ref = cc_ref;
+                                *cc_ref.lock() = Some(cc.egui_ctx.clone());
                                 FIRST_START.call_once(||{
                                     if args.start_minimized
                                     {
@@ -463,7 +462,13 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                             }
                             let data = {
                                 let mut data = app_data.lock();
-                                data.get_or_insert_with(||Arc::new(parking_lot::Mutex::new(app::App::new(args.clone(), quit_mut.clone(), collector.clone(), cc, runtime.clone())))).clone()
+                                data.get_or_insert_with(||Arc::new(parking_lot::Mutex::new(app::App::new(
+                                    args.clone(),
+                                    quit_mut.clone(),
+                                    collector.clone(),
+                                    cc,
+                                    runtime.clone())
+                                ))).clone()
                             };
                             Ok(Box::new(Wrap(data.lock_arc())))
                         }),
@@ -473,9 +478,10 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
             }
 
             let mut app = App {
+                #[cfg(feature = "tray")]
                 cc: cc.clone(),
+                #[cfg(feature = "tray")]
                 state: quit_mut.clone(),
-                open_var: open.clone(),
                 app: app.clone(),
                 #[cfg(feature="tray")]
                 icon: false,
@@ -531,13 +537,16 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                         State::Open => {
                             *app.app.lock() = Some(start_app!())
                         },
+                        #[cfg(feature = "tray")]
                         State::Hidden => {},
                     }
                 }
                 event_loop.run_app_on_demand(&mut app)?;
                 *app.app.lock() = None;
-                *cc.lock() = None;
-                // lock = open.wait(lock).unwrap_or_else(std::sync::PoisonError::into_inner);
+                #[cfg(feature = "tray")]
+                {
+                    *cc.lock() = None;
+                }
             }
 
             println!("GUI exited. Thank you for using DexProtectOSC-RS!");
