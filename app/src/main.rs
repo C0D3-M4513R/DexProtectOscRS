@@ -499,7 +499,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 }
 
                 fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
-                    self.0.logic(ui, frame)
+                    self.0.ui(ui, frame)
                 }
 
                 fn save(&mut self, _storage: &mut dyn Storage) {
