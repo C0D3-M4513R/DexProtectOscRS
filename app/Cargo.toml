@@ -44,7 +44,7 @@ winit = "0.30.13"
 #https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
 #https://github.com/tauri-apps/tray-icon/issues/261
 #rev is latest commit on branch feat/gtk4 at time of writing
-tray-icon = { version = "0.21.3", git = "https://github.com/rmakestrash-jpg/tray-icon.git", rev = "1d014fd17ceef7eb0d1841c4a62675fa754ee02b", features = ["common-controls-v6"], optional = true}
+tray-icon = { version = "0.21.3", git = "https://github.com/rmakestrash-jpg/tray-icon.git", rev = "1d014fd17ceef7eb0d1841c4a62675fa754ee02b", optional = true}
 
 #Logging
 log = "0.4"
