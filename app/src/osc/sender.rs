@@ -29,6 +29,7 @@ impl Debug for OscSender {
                     .field("send_location", send_location)
                     .finish()
             },
+            #[cfg(feature = "oscquery")]
             Self::OscQuery { query: _ } => {
                 f.debug_struct("OscSender::OscQuery")
                     .field("query", &"<no debug impl>")

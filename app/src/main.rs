@@ -482,11 +482,11 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 cc: cc.clone(),
                 #[cfg(feature = "tray")]
                 state: quit_mut.clone(),
-                app: app.clone(),
                 #[cfg(feature="tray")]
                 icon: false,
                 #[cfg(feature="tray")]
                 proxy: event_loop.create_proxy(),
+                app: app.clone(),
             };
             struct Wrap<T>(T);
             impl<T> eframe::App for Wrap<T>

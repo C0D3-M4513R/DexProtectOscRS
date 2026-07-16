@@ -10,7 +10,6 @@ pub static ALL_VRCHAT_CLIENTS:&'static str = "VRChat-Client-*";
 pub static VRCHAT_AVATAR_CHANGE:&'static str = "/avatar/change";
 
 pub use sender::OscSender;
-use crate::osc::dex::ArcDexOscHandler;
 
 mod sender;
 mod dex;
@@ -274,7 +273,7 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                                         _ => return,
                                     };
                                     if let Some(v) = dex.upgrade() {
-                                        ArcDexOscHandler(v).handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)]))).await
+                                        crate::osc::dex::ArcDexOscHandler(v).handle_avatar_change(Arc::from(id), Some(Arc::new([Arc::from(name)]))).await
                                     }
                                 });
                             }
