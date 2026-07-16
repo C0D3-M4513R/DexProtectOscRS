@@ -80,7 +80,7 @@ clap = "4.6.1"
 clap_derive = "4.6.1"
 
 app_macro = {path = "../app_macro"}
-phf = { version = "0.13.1", features = ["macros"], optional = true }
+phf = { version = "0.14.0", features = ["macros"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", default-features = false, features = ["std", "Win32_System_Console"]}
