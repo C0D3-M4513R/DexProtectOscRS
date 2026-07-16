@@ -309,6 +309,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
             }
 
             let app = Arc::new(parking_lot::Mutex::new(None));
+            let icon = Arc::new(parking_lot::Mutex::new(None));
 
             struct App<'a>{
                 #[cfg(feature = "tray")]
@@ -316,74 +317,83 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 #[cfg(feature = "tray")]
                 state: Arc<parking_lot::Mutex<State>>,
                 #[cfg(feature="tray")]
-                icon: bool,
+                icon: Arc<parking_lot::Mutex<Option<tray_icon::TrayIcon>>>,
                 #[cfg(feature="tray")]
                 proxy: winit::event_loop::EventLoopProxy<UserEvent>,
                 app: Arc<parking_lot::Mutex<Option<eframe::EframeWinitApplication<'a>>>>,
+            }
+            impl<'a> App<'a> {
+                fn spawn_icon(&self) {
+                    let mut icon_lock = self.icon.lock();
+                    if icon_lock.is_some() { return; }
+                    log::debug!("Starting Tray Icon");
+                    let ctx = self.cc.clone();
+                    let icon = &crate::icon::ICON_BYTES;
+                    let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
+                    let menu = tray_icon::menu::Menu::new();
+                    let open = tray_icon::menu::MenuItem::new("Open", true, None);
+                    let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
+                    menu.append_items(&[&open, &quit]).expect("Failed to build menu");
+
+                    let tray_icon= match tray_icon::TrayIconBuilder::new()
+                        .with_icon(tray_icon)
+                        .with_menu(Box::new(menu))
+                        .build()
+                    {
+                        Ok(icon) => icon,
+                        Err(err) => {
+                            log::error!("Failed to spawn Tray: {err}");
+                            panic!("Failed to spawn Tray: {err}");
+                        }
+                    };
+                    *icon_lock = Some(tray_icon);
+
+                    {
+                        let proxy = self.proxy.clone();
+                        let state = self.state.clone();
+                        let open = open.into_id();
+                        let quit = quit.into_id();
+                        tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
+                            let ctx = ctx.lock();
+                            if v.id == quit {
+                                if let Some(ctx) = &*ctx {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+                                *state.lock() = State::Quitting;
+
+                                if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX}) {
+                                    log::error!("Failed to notify EventLoop about App State change: {e}");
+                                }
+                            } else if v.id == open {
+                                {
+                                    let mut lock = state.lock();
+                                    if *lock != State::Quitting {
+                                        *lock = State::Open;
+                                    }
+                                }
+                                if let Some(ctx) = &*ctx {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                                }
+
+                                if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX}) {
+                                    log::error!("Failed to notify EventLoop about App State change: {e}");
+                                }
+                            }
+                            else {
+                                if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX-1}) {
+                                    log::error!("Failed to notify EventLoop about App State change: {e}");
+                                }
+                            }
+                        }))
+                    }
+                }
             }
             impl<'a> winit::application::ApplicationHandler<eframe::UserEvent> for App<'a> {
                 fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
                     #[cfg(feature="tray")]
                     {
-                        if cause == winit::event::StartCause::Init {
-                            log::info!("starting tray icon");
-                            self.icon = true;
-                            let ctx = self.cc.clone();
-                            let icon = &crate::icon::ICON_BYTES;
-                            let tray_icon = tray_icon::Icon::from_rgba(icon.rgba.to_vec(), icon.width, icon.height).expect("Failed to load tray-icon");
-                            let menu = tray_icon::menu::Menu::new();
-                            let open = tray_icon::menu::MenuItem::new("Open", true, None);
-                            let quit = tray_icon::menu::MenuItem::new("Quit", true, None);
-                            menu.append_items(&[&open, &quit]).expect("Failed to build menu");
-
-                            let _ = match tray_icon::TrayIconBuilder::new()
-                                .with_icon(tray_icon)
-                                .with_menu(Box::new(menu))
-                                .build()
-                            {
-                                Ok(icon) => icon,
-                                Err(err) => {
-                                    log::error!("Failed to spawn Tray: {err}");
-                                    panic!("Failed to spawn Tray: {err}");
-                                }
-                            };
-
-                            {
-                                let proxy = self.proxy.clone();
-                                let state = self.state.clone();
-                                let open = open.into_id();
-                                let quit = quit.into_id();
-                                tray_icon::menu::MenuEvent::set_event_handler(Some(move |v:tray_icon::menu::MenuEvent|{
-                                    let ctx = ctx.lock();
-                                    if v.id == quit {
-                                        if let Some(ctx) = &*ctx {
-                                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                        }
-                                        *state.lock() = State::Quitting;
-                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX}) {
-                                            log::error!("Failed to notify EventLoop about App State change: {e}");
-                                        }
-                                    } else if v.id == open {
-                                        {
-                                            let mut lock = state.lock();
-                                            if *lock != State::Quitting {
-                                                *lock = State::Open;
-                                            }
-                                        }
-                                        if let Some(ctx) = &*ctx {
-                                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                                        }
-                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX-1}) {
-                                            log::error!("Failed to notify EventLoop about App State change: {e}");
-                                        }
-                                    }
-                                    else {
-                                        if let Err(e) = proxy.send_event(UserEvent::RequestRepaint {viewport_id: egui::ViewportId::ROOT, when: Instant::now(), cumulative_pass_nr: u64::MAX-1}) {
-                                            log::error!("Failed to notify EventLoop about App State change: {e}");
-                                        }
-                                    }
-                                }))
-                            }
+                        if cause == StartCause::Init {
+                            self.spawn_icon();
                         }
                     }
 
@@ -483,7 +493,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 #[cfg(feature = "tray")]
                 state: quit_mut.clone(),
                 #[cfg(feature="tray")]
-                icon: false,
+                icon,
                 #[cfg(feature="tray")]
                 proxy: event_loop.create_proxy(),
                 app: app.clone(),
