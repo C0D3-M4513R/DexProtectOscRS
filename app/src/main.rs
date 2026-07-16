@@ -308,9 +308,6 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 });
             }
 
-            let app = Arc::new(parking_lot::Mutex::new(None));
-            let icon = Arc::new(parking_lot::Mutex::new(None));
-
             struct App<'a>{
                 #[cfg(feature = "tray")]
                 cc: Arc<parking_lot::Mutex<Option<egui::Context>>>,
@@ -323,6 +320,7 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 app: Arc<parking_lot::Mutex<Option<eframe::EframeWinitApplication<'a>>>>,
             }
             impl<'a> App<'a> {
+                #[cfg(feature="tray")]
                 fn spawn_icon(&self) {
                     let mut icon_lock = self.icon.lock();
                     if icon_lock.is_some() { return; }
@@ -493,10 +491,10 @@ fn async_main(args: Args, collector: Collector) -> anyhow::Result<()> {
                 #[cfg(feature = "tray")]
                 state: quit_mut.clone(),
                 #[cfg(feature="tray")]
-                icon,
+                icon: Arc::new(parking_lot::Mutex::new(None)),
                 #[cfg(feature="tray")]
                 proxy: event_loop.create_proxy(),
-                app: app.clone(),
+                app: Arc::new(parking_lot::Mutex::new(None)),
             };
             struct Wrap<T>(T);
             impl<T> eframe::App for Wrap<T>
