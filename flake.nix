@@ -59,8 +59,9 @@
 #						    "https://gitea.c0d3m4513r.com/Code-Rust/_cargo-index.git" = "https://gitea.c0d3m4513r.com/Code-Rust/_cargo-index.git";
 						};
 						outputHashes = {
-								 "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
-								 "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+                             "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
+                             "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+                             "egui_tracing-0.3.0" = "sha256-Xq/P1PH+QZZm29xMV//HafveD27YspGknMMnwi0fZGA=";
 						};
 					};
 					doCheck = true;
