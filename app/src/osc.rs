@@ -78,18 +78,6 @@ impl OscCreateData {
         self
     }
 }
-
-fn poll_stream_end<S:futures::Stream + Unpin + 'static>(mut stream: S) -> core::future::PollFn<impl FnMut(&'_ mut core::task::Context<'_>) -> core::task::Poll<()>> {
-    use futures::stream::StreamExt;
-    core::future::poll_fn(move |cx|{
-        match stream.poll_next_unpin(cx) {
-            core::task::Poll::Ready(Some(_)) => core::task::Poll::Pending,
-            core::task::Poll::Ready(None) => core::task::Poll::Ready(()),
-            core::task::Poll::Pending => core::task::Poll::Pending,
-        }
-    })
-}
-
 pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: tokio::sync::oneshot::Receiver<()>) -> anyhow::Result<()> {
     let mut message_handlers = None;
     let mut packet_handlers = None;
@@ -150,22 +138,22 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
             raw_packet_handlers = Some(multiplexer);
         }
     }
-    let check_handler = |(_, (out, _)): (Option<()>, (Vec<(Vec<Option<Vec<_>>>, _)>, Option<()>))|{
-        let stream: futures::stream::FuturesUnordered<_> = out.into_iter()
+    let check_handler = |(_, (out, _)): (Option<()>, (Vec<(Vec<Option<Vec<_>>>, _)>, Option<()>)), js: &mut tokio::task::JoinSet<()>|{
+        for fut in out.into_iter()
             .flat_map(|(v, _)|v.into_iter())
             .flat_map(|v|v.into_iter())
-            .flat_map(|v|v.into_iter())
-            .collect();
-        poll_stream_end(stream)
+            .flat_map(|v|v.into_iter()) {
+            js.spawn(fut);
+        }
     };
-    let packet_handler = |(raw, parse): (Option<Vec<sender::RawSendMessage<Arc<_>>>>, Vec<Result<(Result<Vec<Option<Vec<_>>>, _>, Option<_>), _>>)|{
+    let packet_handler = |(raw, parse): (Option<Vec<sender::RawSendMessage<Arc<_>>>>, Vec<Result<(Result<Vec<Option<Vec<_>>>, _>, Option<_>), _>>), js: &mut tokio::task::JoinSet<()>|{
         use futures::future::FutureExt;
         let mut send_message = Vec::new();
         if let Some(raw) = raw {
             send_message.extend(raw);
         }
         let mut parse_err = Vec::new();
-        let futures = parse.into_iter()
+        for fut in parse.into_iter()
             .flat_map(|v|match v{
                 Err(err) => {
                     parse_err.push(err);
@@ -180,38 +168,28 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
             })
             .flat_map(|v|v.into_iter())
             .flat_map(|v|v.into_iter())
-            .flat_map(|v|v.into_iter())
-            .collect::<futures::stream::FuturesUnordered<_>>();
-        let fut = poll_stream_end(futures);
-        let non_empty_send_message = !send_message.is_empty();
-        let fut = futures::future::join(
-            poll_stream_end(
-                send_message.into_iter()
-                    .map(|v|v.map(|(v, buf)|match v {
-                        Ok(v) => {
-                            if v != buf.len() {
-                                log::warn!("Sent less bytes than were queued ({v} sent, {} queued)", buf.len());
-                            } else {
-                                #[cfg(all(debug_assertions, feature="debug_log"))]
-                                log::trace!("Sent {v} bytes of {} queued bytes.", buf.len());
-                            }
-                        },
-                        Err(err) => {
-                            log::warn!("Failed to send message: {err}");
+            .flat_map(|v|v.into_iter()) {
+            js.spawn(fut);
+        }
+        for fut in
+            send_message.into_iter()
+                .map(|v|v.map(|(v, buf)|match v {
+                    Ok(v) => {
+                        if v != buf.len() {
+                            log::warn!("Sent less bytes than were queued ({v} sent, {} queued)", buf.len());
+                        } else {
+                            #[cfg(all(debug_assertions, feature="debug_log"))]
+                            log::trace!("Sent {v} bytes of {} queued bytes.", buf.len());
                         }
-                    }))
-                    .collect::<futures::stream::FuturesUnordered<_>>()
-            ),
-            fut
-        ).map(move |_|{
-            if non_empty_send_message {
-                log::info!("Future Polled to completion");
-            }
+                    },
+                    Err(err) => {
+                        log::warn!("Failed to send message: {err}");
+                    }
+                })) {
+            js.spawn(fut);
+        }
 
-            ()
-        });
-
-        (parse_err.into_iter(), fut)
+        parse_err.into_iter()
     };
     let poll_duration = Duration::from_secs(1);
     let max_message_size = NonZeroUsize::new(osc_create_data.max_message_size);
@@ -311,9 +289,9 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                 SERVICE_NAME,
                 vrchat_osc::models::OscRootNode::new().with_avatar(),
                 handler,
-                move |v, handler, _|{
+                move |v, handler, js, _|{
                     let parsing_buf_size = handler.handler2.get_max_buffer_size().map(NonZeroUsize::get).unwrap_or(usize::MAX);
-                    let (iter, fut ) = packet_handler(v);
+                    let iter = packet_handler(v, js);
                     for e in iter{
                         match e {
                             rosc::OscError::BadPacket(reason) => {
@@ -340,10 +318,8 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                             }
                         }
                     }
-
-                    fut
                 },
-                move |v, _|check_handler(v),
+                move |v, _, js|check_handler(v, js),
                 poll_duration
             ).await?;
 
@@ -362,16 +338,18 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
             log::debug!("OscQuery Strong arc count: {}", Arc::strong_count(&vrcoscquery));
             if let Some(dex) = &dex { log::debug!("DexProtectOsc Strong arc count: {}", Arc::strong_count(&dex.0)); }
 
-            tokio::join!(async {
-                let weak = Arc::downgrade(&vrcoscquery);
-                drop(vrcoscquery);
-                wait_arc(weak, "OscQuery").await
-            }, stop_dex(dex));
+            let weak_vrcoscquery = Arc::downgrade(&vrcoscquery);
+            drop(vrcoscquery);
+            tokio::join!(
+                wait_arc(weak_vrcoscquery, "OscQuery"),
+                stop_dex(dex)
+            );
             log::info!("Stopped OscQuery and Osc Listener.");
             Ok(())
         }
         OscSender::OSC { osc_send, send_location: _ } => {
             log::info!("Started OSC Listener.");
+            let weak_osc_send = Arc::downgrade(&osc_send);
 
             network_handler_listener_osc_tokio::OscReceiver::new_with_arc_socket(
                 osc_send,
@@ -380,14 +358,16 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
                 message_handlers,
                 packet_handlers,
                 raw_packet_handlers
-            ).listen_recv(
+            ).listen_recv_from(
                 shutdown,
-                move |v, _|check_handler(v),
-                move |v, _, _|packet_handler(v),
+                move |v, _, jh|check_handler(v, jh),
+                move |v, _, jh, _|packet_handler(v, jh),
             ).await;
 
-            tokio::time::sleep(Duration::from_millis(15)).await;
-            stop_dex(dex).await;
+            tokio::join!(
+                wait_arc(weak_osc_send, "Osc Udp Send"),
+                stop_dex(dex)
+            );
             log::info!("Stopped OSC Listener.");
 
             Ok(())
@@ -397,6 +377,7 @@ pub async fn create_and_start_osc(osc_create_data: OscCreateData, shutdown: toki
 }
 async fn stop_dex(dex: Option<dex::ArcDexOscHandler>) {
     if let Some(dex) = dex {
+        log::info!("Stopping DexProtect Handler");
         drop(dex.stop().await);
         let weak = Arc::downgrade(&dex.0);
         drop(dex);

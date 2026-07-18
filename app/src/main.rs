@@ -198,14 +198,17 @@ fn init_logging(collector: &Collector) -> anyhow::Result<()> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
+    let env_filter =
+        tracing_subscriber::filter::EnvFilter::builder()
+            .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+            .from_env_lossy();
+    let registry = tracing_subscriber::registry();
+    #[cfg(feature = "tokio-console")]
+    let registry = registry.with(console_subscriber::spawn());
     #[cfg(feature = "gui")]
     {
         if let Some(collector) = collector {
-            let env_filter =
-                tracing_subscriber::filter::EnvFilter::builder()
-                    .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
-                    .from_env_lossy();
-            tracing_subscriber::registry()
+            registry
                 .with(
                     tracing_subscriber::fmt::layer()
                         .pretty()
@@ -232,7 +235,7 @@ fn init_logging(collector: &Collector) -> anyhow::Result<()> {
     let _ = collector;
     {
         let v = alloc_console()?;
-        tracing_subscriber::registry()
+        registry
             .with(
                 {
                     let mut fmt =
@@ -242,11 +245,7 @@ fn init_logging(collector: &Collector) -> anyhow::Result<()> {
                         println!("AllocConsole was used. AllocConsole doesn't want to handle ANSI, so disabling ansi");
                         fmt.set_ansi(false);
                     }
-                    fmt.with_filter(
-                        tracing_subscriber::filter::EnvFilter::builder()
-                            .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
-                            .from_env_lossy()
-                    )
+                    fmt.with_filter(env_filter)
                 }
             )
             .init();

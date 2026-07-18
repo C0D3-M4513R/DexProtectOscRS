@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use aes::cipher::{BlockModeDecrypt, KeyIvInit};
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use unicode_bom::Bom;
 use super::OscSender;
@@ -50,8 +50,9 @@ pub(super) struct DexOscHandler {
     path: Arc<std::path::Path>,
     dex_use_bundles: bool,
     osc: OscSender,
-    key_params_outstanding_confirmations: Mutex<Option<HashMap<String, OscType>>>,
-    current_params: RwLock<HashMap<String, OscType>>,
+    key_params_outstanding_confirmations: arc_swap::ArcSwap<HashMap<String, OscType>>,
+    key_params: arc_swap::ArcSwapOption<HashMap<String, OscType>>,
+    current_params: arc_swap::ArcSwap<HashMap<Arc<str>, OscType>>,
     detect: Mutex<Detect>
 }
 
@@ -61,8 +62,9 @@ impl DexOscHandler {
             path: Arc::from(osc_create_data.path.clone()),
             dex_use_bundles: osc_create_data.dex_use_bundles,
             osc,
-            key_params_outstanding_confirmations: Mutex::new(None),
-            current_params: RwLock::new(HashMap::new()),
+            key_params_outstanding_confirmations: arc_swap::ArcSwap::new(Arc::new(HashMap::new())),
+            key_params: arc_swap::ArcSwapOption::empty(),
+            current_params: arc_swap::ArcSwap::new(Arc::new(HashMap::new())),
             detect: Mutex::new(None)
         }
     }
@@ -134,46 +136,68 @@ impl<I> network_handler::ArbitraryHandler<&'_ [&'_ OscMessage], I> for ArcDexOsc
                     Some(v) => v.clone(),
                 };
 
-                let slf = self.clone();
-                let first_c = first.clone();
-                let addr = message.addr.clone();
-                out.push(Box::pin(async move {
-                    let mut current_params = slf.current_params.write().await;
-                    current_params.insert(addr, first_c);
-                }));
-                let slf = self.clone();
-                let message = (*message).clone();
-                out.push(Box::pin(async move {
-                    let mut params = slf.key_params_outstanding_confirmations.lock().await;
-                    match params.as_mut() {
-                        Some(params) => {
-                            match params.remove(&message.addr) {
-                                None => {
-                                    #[cfg(all(debug_assertions, feature="debug_log"))]
-                                    {
-                                        log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
-                                    }
+                self.current_params.rcu(|p|{
+                    let mut map = HashMap::clone(p);
+                    map.insert(Arc::from(message.addr.as_str()), first.clone());
+                    map
+                });
+                let params = self.key_params_outstanding_confirmations.load();
+                match params.get(&message.addr) {
+                    None => {
+                        #[cfg(all(debug_assertions, feature="debug_log"))]
+                        {
+                            log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
+                        }
+                    }
+                    Some(val) => {
+                        if first != *val {
+                            #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                            log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key", message.addr);
+                            #[cfg(all(debug_assertions, feature="debug_log"))]
+                            log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key. (was {first:?}, expected {val:?})", message.addr);
+                        } else {
+                            {
+                                drop(params);
+                                self.key_params_outstanding_confirmations.rcu(|p|{
+                                    let mut map = HashMap::clone(p);
+                                    map.remove(&message.addr);
+                                    map
+                                });
+                            }
+                            #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                            log::debug!("Got a avatar-key parameter set");
+                            #[cfg(all(debug_assertions, feature="debug_log"))]
+                            log::debug!("Got a avatar-key parameter set: {message:?}");
+                        }
+                    }
+                }
+                let params = self.key_params.load();
+                match params.as_ref() {
+                    Some(params) => {
+                        match params.get(&message.addr) {
+                            None => {
+                                #[cfg(all(debug_assertions, feature="debug_log"))]
+                                {
+                                    log::trace!("Got a non-avatar-key parameter set: {}", message.addr);
                                 }
-                                Some(val) => {
-                                    if first != val {
-                                        #[cfg(not(all(debug_assertions, feature="debug_log")))]
-                                        log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key", message.addr);
-                                        #[cfg(all(debug_assertions, feature="debug_log"))]
-                                        log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key. (was {first:?}, expected {val:?})", message.addr);
-
-                                        params.insert(message.addr, val); // The parameter set was incorrect. Re-Insert the parameter & value, so it gets re-set.
-                                    } else {
-                                        #[cfg(not(all(debug_assertions, feature="debug_log")))]
-                                        log::debug!("Got a avatar-key parameter set");
-                                        #[cfg(all(debug_assertions, feature="debug_log"))]
-                                        log::debug!("Got a avatar-key parameter set: {message:?}");
-                                    }
+                            }
+                            Some(val) => {
+                                if first != *val {
+                                    #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                    log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key", message.addr);
+                                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                                    log::error!("An Avatar Key parameter at the path '{}' was set to a different value or type than the key. (was {first:?}, expected {val:?})", message.addr);
+                                } else {
+                                    #[cfg(not(all(debug_assertions, feature="debug_log")))]
+                                    log::debug!("Got a avatar-key parameter set");
+                                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                                    log::debug!("Got a avatar-key parameter set: {message:?}");
                                 }
                             }
                         }
-                        None => {}
                     }
-                }));
+                    None => {}
+                }
 
             }else{
                 #[cfg(all(debug_assertions, feature="debug_log"))]
@@ -227,6 +251,11 @@ impl ArcDexOscHandler {
         self.handle_avatar_change(id, names).await
     }
     pub async fn stop(&self) -> tokio::sync::MutexGuard<'_, Detect> {
+        log::debug!("Stopping previous Key-Apply thread and deleting previous Key info");
+        self.key_params_outstanding_confirmations.store(Arc::new(HashMap::new()));
+        log::debug!("Deleted Outstanding Key-Information that hasn't yet been applied.");
+        self.key_params.store(None);
+        log::debug!("Deleted Key-Information.");
         let mut detect = self.detect.lock().await;
         if let Some((tx, jh)) = detect.take() {
             if let Err(_) = tx.send(()) {
@@ -239,6 +268,7 @@ impl ArcDexOscHandler {
                 }
             }
         }
+        log::debug!("Stopped previous Key-Apply thread");
         detect
     }
     pub async fn handle_avatar_change(self, id: Arc<str>, names: Option<Arc<[Arc<str>]>>) {
@@ -367,7 +397,9 @@ impl ArcDexOscHandler {
         }
         log::info!("A Key for the Avatar id '{}' was detected and decoded. The Avatar has been attempted to be Unlocked.", id);
         params.shrink_to_fit();
-        *self.key_params_outstanding_confirmations.lock().await = Some(params.clone());
+        let params = Arc::new(params);
+        self.key_params_outstanding_confirmations.store(params.clone());
+        self.key_params.store(Some(params.clone()));
         let slf = self.clone();
         let (tx, mut rx) = tokio::sync::oneshot::channel();
         let jh = tokio::task::spawn(async move {
@@ -377,7 +409,7 @@ impl ArcDexOscHandler {
             macro_rules! success {
                 () => {
                     if !apply_success {
-                        *slf.key_params_outstanding_confirmations.lock().await = None;
+                        slf.key_params_outstanding_confirmations.store(Arc::new(HashMap::new()));
                         #[allow(unused_assignments)]
                         {
                             apply_success = true;
@@ -389,26 +421,20 @@ impl ArcDexOscHandler {
                 () => {
                     let mut key = Vec::new();
                     {
-                        let params = slf.key_params_outstanding_confirmations.lock().await;
-                        let params_ref = match &*params {
-                            None => {
-                                log::warn!("Unexpected None variant in the Avatar Key application. This is unexpected and might be a bug.");
-                                log::trace!("All Avatar Keys have been supplied after {apply_tries}*{DEX_KEY_WAIT_DESC}.");
-                                success!();
-                                return;
-                            }
-                            Some(v) => v,
-                        };
+                        let params = slf.key_params_outstanding_confirmations.load();
+                        let params_ref = &*params;
 
                         if params_ref.is_empty() {
+                            drop(params);
                             log::trace!("All Avatar Keys have been supplied after {apply_tries}*{DEX_KEY_WAIT_DESC}.");
+                            log::debug!("Osc DexProtect Key-Apply thread finished. Exiting.");
                             success!();
                             return;
                         }
 
                         let len = params_ref.len();
                         key.reserve_exact(len);
-                        for (name, type_) in params_ref {
+                        for (name, type_) in params_ref.iter() {
                             key.push(OscPacket::Message(OscMessage{
                                 addr: name.clone(),
                                 args: vec![type_.clone()],
@@ -439,7 +465,10 @@ impl ArcDexOscHandler {
             loop{
                 tokio::select! {
                     biased;
-                    _ = &mut rx => { break; }
+                    _ = &mut rx => {
+                        log::debug!("Osc DexProtect Key-Apply thread got terminate signal. Exiting.");
+                        break;
+                    }
                     _ = timer.tick() => {
                         if !apply_success {
                             if apply_tries <= DEX_KEY_WAIT_RETRIES {
@@ -452,16 +481,18 @@ impl ArcDexOscHandler {
                         }
 
                         let outstanding_params = {
-                            let current_params = slf.current_params.read().await;
-                            params.iter()
+                            let current_params = slf.current_params.load();
+                            let out = params.iter()
                                 .filter(|(key, value)|current_params.get(key.as_str()) != Some(value))
                                 .map(|(k, v)|(k.clone(), v.clone()))
-                                .collect::<HashMap<_, _>>()
+                                .collect::<HashMap<_, _>>();
+                            drop(current_params);
+                            out
                         };
 
                         if !outstanding_params.is_empty() {
                             log::info!("Detected avatar parameters deviating from avatar Key. Re-Unlocking!");
-                            *slf.key_params_outstanding_confirmations.lock().await = Some(outstanding_params);
+                            slf.key_params_outstanding_confirmations.store(Arc::new(outstanding_params));
                             apply_success = false;
                             apply_tries = 0;
                             reapply_key!();
