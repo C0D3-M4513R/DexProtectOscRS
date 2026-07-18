@@ -54,12 +54,24 @@
 					src = pkgs.lib.cleanSource ./.;
 					cargoLock = {
 						lockFile = ./Cargo.lock;
+						extraRegistries = {
+						    "sparse+https://gitea.c0d3m4513r.com/api/packages/Code-Rust/cargo/" = "https://gitea.c0d3m4513r.com/api/packages/Code-Rust/cargo/api/v1/crates";
+#						    "https://gitea.c0d3m4513r.com/Code-Rust/_cargo-index.git" = "https://gitea.c0d3m4513r.com/Code-Rust/_cargo-index.git";
+						};
 						outputHashes = {
-								 "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
-								 "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+                             "muda-0.17.1" = "sha256-eY8IsAyZIWtNltP8q+Zqb/4pt3QOVbNPyLPYKi6lqfE=";
+                             "tray-icon-0.21.3" = "sha256-P3mKX5ciOLdDg6Kr1ZdXZOKsyptIAFvHr2pL8iiGqjY=";
+                             "egui_tracing-0.3.0" = "sha256-Xq/P1PH+QZZm29xMV//HafveD27YspGknMMnwi0fZGA=";
 						};
 					};
 					doCheck = true;
+
+					postPatch = ''
+					    echo ' ' >>.cargo/config.toml
+					    echo '[source.forgejo-code-rust]' >>.cargo/config.toml
+                        echo 'directory = "/non-existant"' >>.cargo/config.toml
+                        echo 'replace-with = "vendored-sources"' >>.cargo/config.toml
+					'';
 
 					nativeBuildInputs = [
 						pkgs.autoPatchelfHook
@@ -75,7 +87,7 @@
 					] ++ commonBuildInputs;
 
 				  #FIXME(tray-icon): Darwin has is known broken compilation for tray-icon: https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
-					buildFeatures = [] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
+					buildFeatures = ["oscquery"] ++ pkgs.lib.optionals (!pkgs.stdenv.hostPlatform.isDarwin) ["tray"];
 
 					desktopItems =
 					let

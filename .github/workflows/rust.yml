@@ -60,7 +60,7 @@ jobs:
     - uses: cachix/install-nix-action@v31
       with:
         nix_path: nixpkgs=channel:nixos-25.11
-    - uses: DeterminateSystems/magic-nix-cache-action@v13
+    - uses: DeterminateSystems/magic-nix-cache-action@v14
     - run: nix-build
     - name: remove dex_key.rs
       run: git 'rm' '--cached' 'app/src/osc/dex_key.rs'
@@ -74,26 +74,26 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux_64-bit
-            features: "file_dialog,tray"
+            features: "file_dialog,oscquery,tray"
           #- os: ubuntu-latest
           #  target: x86_64-unknown-linux-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: windows_64-bit
-            features: "file_dialog,tray"
+            features: "file_dialog,oscquery,tray"
           - os: windows-latest
             target: i686-pc-windows-msvc
             name: windows_32-bit
-            features: "file_dialog,tray"
+            features: "file_dialog,oscquery,tray"
 #FIXME(tray-icon): Mac is known broken currently: https://github.com/tauri-apps/muda/pull/341#issuecomment-4504194244
           - os: macos-latest
             target: x86_64-apple-darwin
             name: macos_64-bit
-            features: "file_dialog"
+            features: "file_dialog,oscquery"
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos_aarch64
-            features: "file_dialog"
+            features: "file_dialog,oscquery"
       fail-fast: false
     steps:
       - name: Checkout repository

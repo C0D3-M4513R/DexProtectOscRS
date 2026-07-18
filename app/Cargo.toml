@@ -1,18 +1,45 @@
 [package]
 name = "dex_protect_osc_rs"
 version = "0.1.3"
-edition = "2021"
+edition = "2024"
 publish = false
+authors = ["C0D3 M4513R"]
+#publish = ["forgejo-code-rust"]
+#build = "build.rs"
+
+[badges]
+# The `maintenance` table indicates the status of the maintenance of
+# the crate. This may be used by a registry, but is currently not
+# used by crates.io. See https://github.com/rust-lang/crates.io/issues/2437
+# and https://github.com/rust-lang/crates.io/issues/2438 for more details.
+#
+# The `status` field is required. Available options are:
+# - `actively-developed`: New features are being added and bugs are being fixed.
+# - `passively-maintained`: There are no plans for new features, but the maintainer intends to
+#   respond to issues that get filed.
+# - `as-is`: The crate is feature complete, the maintainer does not intend to continue working on
+#   it or providing support, but it works for the purposes it was designed for.
+# - `experimental`: The author wants to share it with the community but is not intending to meet
+#   anyone's particular use case.
+# - `looking-for-maintainer`: The current maintainer would like to transfer the crate to someone
+#   else.
+# - `deprecated`: The maintainer does not recommend using this crate (the description of the crate
+#   can describe why, there could be a better solution available or there could be problems with
+#   the crate that the author does not want to fix).
+# - `none`: Displays no badge on crates.io, since the maintainer has not chosen to specify
+#   their intentions, potential crate users will need to investigate on their own.
+maintenance = { status = "passively-maintained" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 #gui stuff
 rfd = {version = "0.17", optional = true}
-egui_tracing = "0.3"
-egui_extras = "0.34"
-egui = "0.34"
-eframe = { version = "0.34", features = [ "persistence"] }
+egui_tracing = { version = "0.3" , optional = true}
+egui_extras = { version = "0.35" , optional = true}
+egui = { version = "0.35" , optional = true}
+eframe = { version = "0.35", features = [ "persistence"], optional = true }
+winit = "0.30.13"
 
 #https://github.com/tauri-apps/tray-icon/pull/201#issuecomment-3679434001
 #https://github.com/tauri-apps/tray-icon/issues/261
@@ -21,8 +48,8 @@ tray-icon = { version = "0.21.3", git = "https://github.com/rmakestrash-jpg/tray
 
 #Logging
 log = "0.4"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-core = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing = "0.1.44"
 thiserror = "2.0.17"
 
 #Persistant data storage
@@ -31,12 +58,16 @@ serde = "1"
 
 #async driver
 tokio = { version = "1", features = ["full"] }
-parking_lot = "0.12.5"
+console-subscriber = { version = "0.5.0", optional = true }
+parking_lot = { version = "0.12.5", features = ["arc_lock"] }
 futures = "0.3"
 
 #osc
+vrchat_osc = {version = "4.0.0", registry = "forgejo-code-rust", optional = true}
 rosc = "0.11.4"
-network-handler = {version = "0.1.0", registry = "forgejo-code-rust", features = ["tokio"]}
+nom = "7.0.0"
+network-handler = {version = "0.3.0", registry = "forgejo-code-rust", features = ["alloc", "osc"]}
+network-handler-listener-osc-tokio = {version = "0.2", registry = "forgejo-code-rust"}
 unicode-bom = "2"
 
 #cypher
@@ -44,17 +75,35 @@ cbc = { version = "0.2.0", features = ["alloc"] }
 aes = "0.9.0"
 #block-padding = "0.3.3"
 
+anyhow = "1.0.102"
+const_format = { version = "0.2.36", features = ["rust_1_83", "fmt"] }
+clap = "4.6.1"
+clap_derive = "4.6.1"
+
 app_macro = {path = "../app_macro"}
-phf = { version = "0.13.1", features = ["macros"], optional = true }
+phf = { version = "0.14.0", features = ["macros"], optional = true }
+arc-swap = "1.9.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", default-features = false, features = ["std", "Win32_System_Console"]}
 
 [features]
 default = ["file_dialog"]
 
-file_dialog = ["dep:rfd"]
-tray = ["dep:tray-icon"]
+gui = [
+    "dep:egui_tracing",
+    "dep:egui_extras",
+    "dep:egui",
+    "dep:eframe",
+]
+file_dialog = ["gui", "dep:rfd"]
+tray = ["gui", "dep:tray-icon"]
 
 compile_time_key_include = ["dep:phf"]
 
-oscquery = []
+oscquery = ["dep:vrchat_osc"]
 no_decryption_keys = []
-debug_log = ["osc-handler/debug_log"]
+debug_log = []
+tokio-console = ["dep:console-subscriber"]
+network_debug_log = ["network-handler/debug_log"]
+network_tokio_debug_log = ["network-handler-listener-osc-tokio/debug_log"]
