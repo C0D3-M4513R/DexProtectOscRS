@@ -79,6 +79,7 @@ anyhow = "1.0.102"
 const_format = { version = "0.2.36", features = ["rust_1_83", "fmt"] }
 clap = "4.6.1"
 clap_derive = "4.6.1"
+data-encoding = "2.11"
 
 app_macro = {path = "../app_macro"}
 phf = { version = "0.14.0", features = ["macros"], optional = true }

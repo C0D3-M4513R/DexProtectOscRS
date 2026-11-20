@@ -1369,6 +1369,7 @@ dependencies = [
  "clap_derive",
  "console-subscriber",
  "const_format",
+ "data-encoding",
  "eframe",
  "egui",
  "egui_extras",

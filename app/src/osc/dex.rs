@@ -314,9 +314,9 @@ impl ArcDexOscHandler {
                 log::error!("Failed to decrypt the Key for the Avatar id '{id}'. Trying to treat the key as an unencrypted legacy Key.\n Error: {err}");
             }
             let mut decoded = match vecu8_to_str(v){
-                Some(v) => v,
-                None => {
-                    log::error!("Failed to decode the Avatar id '{}' Key file. Refusing to unlock.", id);
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!("Failed to decode the Avatar id '{}' Key file. Refusing to unlock: {e}", id);
                     return;
                 }
             };
@@ -325,14 +325,7 @@ impl ArcDexOscHandler {
             decoded = decoded.replace(",", ".");
             #[cfg(all(debug_assertions, feature="debug_log"))]
             log::debug!("Decoded Avatar id '{}' post processed Key file: '{}'", id, decoded);
-            // #[cfg(not(windows))] //Todo: Is this all os's aside from windows or just a unix/linux thing?
-            let decoded = if let Some(new) = decoded.strip_suffix("\x02\x02") {
-                #[cfg(all(debug_assertions, feature="debug_log"))] //TODO: Why does this happen?
-                log::warn!("Keyfile has a suspicious 0x0202 at the end of the keyfile. Removing.");
-                new
-            } else {
-                decoded.as_str()
-            };
+            let decoded = decoded.as_str();
             let split:Vec<&str> = decoded.split("|").collect();
             let len = if split.len()%2 == 0 {
                 split.len()
@@ -570,13 +563,13 @@ const KEY: [u8; 32] = [0; 32];
 const IV: [u8;16] = [0; 16];
 
 
-fn decrpyt(mut file: Vec<u8>) -> (Vec<u8>, Option<DecryptError>) {
+fn decrpyt(file: Vec<u8>) -> (Vec<u8>, Option<DecryptError>) {
     match cbc::Decryptor::<aes::Aes256>::new_from_slices(
             &KEY,
             &IV
         ).map_err(DecryptError::from)
-        .and_then(|aes|aes.decrypt_padded::<cbc::cipher::block_padding::Pkcs7>(file.as_mut_slice()).map_err(DecryptError::from)) {
-        Ok(_) => (file, None),
+        .and_then(|aes|aes.decrypt_padded_vec::<cbc::cipher::block_padding::Pkcs7>(file.as_slice()).map_err(DecryptError::from)) {
+        Ok(v) => (v, None),
         Err(err) => (file, Some(err)),
     }
 }
@@ -594,7 +587,8 @@ fn decode_number(number:&str, id:&str) -> Option<u32> {
         }
     }
 }
-fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
+
+fn vecu8_to_str(v:Vec<u8>) -> anyhow::Result<String> {
     let bom = unicode_bom::Bom::from(v.as_slice());
     match bom {
         Bom::Null => {
@@ -606,15 +600,45 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
 //         }
             log::debug!("No BOM Detected. Assuming UTF-8.");
             match String::from_utf8(v.into()) {
-                Ok(v) => Some(v),
-                Err(_) => None,
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                    anyhow::bail!("Error decoding UTF-8 file: {e}, data: {}", data_encoding::BASE64.encode(e.as_bytes()));
+                    #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+                    anyhow::bail!("Error decoding UTF-8 file: {e}");
+                },
             }
         }
-        Bom::Bocu1 => None,
-        Bom::Gb18030 => None,
-        Bom::Scsu => None,
-        Bom::UtfEbcdic => None,
-        Bom::Utf1 => None,
+        Bom::Bocu1 => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Bom of Bocu1: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Bom of Bocu1");
+        }
+        Bom::Gb18030 => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Bom of Gb18030: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Bom of Gb18030");
+        }
+        Bom::Scsu => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Bom of Scsu: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Bom of Scsu");
+        }
+        Bom::UtfEbcdic => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Bom of UtfEbcdic: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Bom of UtfEbcdic");
+        }
+        Bom::Utf1 => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Bom of Utf1: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Bom of Utf1");
+        }
         Bom::Utf7 => {
             //https://en.wikipedia.org/wiki/UTF-7
             //> UTF-7 has never been an official standard of the Unicode Consortium.
@@ -623,7 +647,11 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
             //
             //And I guess so will I.
             log::debug!("Actively ignoring UTF-7 file");
-            None
+
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Actively ignoring UTF-7 file: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Actively ignoring UTF-7 file");
         },
         Bom::Utf8 => {
             log::debug!("Detected UTF-8 file.");
@@ -632,29 +660,68 @@ fn vecu8_to_str(v:Vec<u8>) -> Option<String> {
             vec_deque.pop_front();
             vec_deque.pop_front();
             match String::from_utf8(vec_deque.into()) {
-                Ok(v) => Some(v),
-                Err(_) => None,
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                    anyhow::bail!("Error decoding UTF-8 file: {e}, data: {}", data_encoding::BASE64.encode(e.as_bytes()));
+                    #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+                    anyhow::bail!("Error decoding UTF-8 file: {e}");
+                },
             }
         }
         Bom::Utf16Be => {
             log::debug!("Detected UTF-16Be file.");
-            let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(v, true));
+            let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(&v, true));
             utf16_buf.pop_front();
             log::debug!("Decoded {} u16 values.", utf16_buf.len());
-            utf16_buf_to_str(utf16_buf.into())
+            let utf16_buf = Vec::from(utf16_buf);
+            match utf16_buf_to_str(&utf16_buf) {
+                Ok(v) => Ok(v),
+                Err((i, e)) =>  {
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                    anyhow::bail!("Error decoding Utf16Be file at index {i}: {e}, data: {}", data_encoding::BASE64.encode(&v));
+                    #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+                    {
+                        let _ = i;
+                        anyhow::bail!("Error decoding Utf16Be file: {e}");
+                    }
+                }
+            }
         }
         Bom::Utf16Le => {
             log::debug!("Detected UTF-16Le file.");
-            let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(v,false));
+            let mut utf16_buf = VecDeque::from(vecu8_to_vecu16(&v,false));
             utf16_buf.pop_front();
             log::debug!("Decoded {} u16 values.", utf16_buf.len());
-            utf16_buf_to_str(utf16_buf.into())
+            let utf16_buf = Vec::from(utf16_buf);
+            match utf16_buf_to_str(&utf16_buf) {
+                Ok(v) => Ok(v),
+                Err((i, e)) =>  {
+                    #[cfg(all(debug_assertions, feature="debug_log"))]
+                    anyhow::bail!("Error decoding Utf16Be file at index {i}: {e}, data: {}", data_encoding::BASE64.encode(&v));
+                    #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+                    {
+                        let _ = i;
+                        anyhow::bail!("Error decoding Utf16Be file: {e}");
+                    }
+                }
+            }
         }
-        Bom::Utf32Be => None,
-        Bom::Utf32Le => None,
+        Bom::Utf32Be => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Utf32Be file: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Utf32Be file");
+        },
+        Bom::Utf32Le => {
+            #[cfg(all(debug_assertions, feature="debug_log"))]
+            anyhow::bail!("Unsupported Utf32Be file: {}", data_encoding::BASE64.encode(&v));
+            #[cfg(any(not(debug_assertions), not(feature="debug_log")))]
+            anyhow::bail!("Unsupported Utf32Be file");
+        },
     }
 }
-fn vecu8_to_vecu16(v:Vec<u8>, be:bool) -> Vec<u16>{
+fn vecu8_to_vecu16(v:&[u8], be:bool) -> Vec<u16>{
     log::debug!("Got {} bytes.", v.len());
     let mut utf16buf:Vec<u16> = Vec::new();
     let mut i = 0;
@@ -675,13 +742,13 @@ fn vecu8_to_vecu16(v:Vec<u8>, be:bool) -> Vec<u16>{
     log::debug!("Converted to {} u16 values.", utf16buf.len());
     utf16buf
 }
-fn utf16_buf_to_str(v:Vec<u16>) -> Option<String>{
+fn utf16_buf_to_str(v:&[u16]) -> Result<String, (usize, core::char::DecodeUtf16Error)>{
     let mut string = String::new();
-    for i in char::decode_utf16(v){
-        match i {
+    for (i, v) in char::decode_utf16(v.iter().copied()).enumerate(){
+        match v {
             Ok(v)=>string.push(v),
-            Err(_) => return None,
+            Err(e) => return Err((i, e)),
         }
     }
-    return Some(string);
+    Ok(string)
 }
