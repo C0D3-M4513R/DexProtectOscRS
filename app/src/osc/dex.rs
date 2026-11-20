@@ -476,6 +476,7 @@ impl ArcDexOscHandler {
                                 reapply_key!();
                             } else {
                                 log::error!("Giving up on unlocking after {DEX_KEY_MAX_WAIT_DESC}.");
+                                break;
                             }
                             continue;
                         }
