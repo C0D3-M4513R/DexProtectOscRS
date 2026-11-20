@@ -50,7 +50,7 @@ pub fn include_image(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     let rgba = image.into_raw();
 
     quote!{
-        crate::Image {
+        Image {
             width: #width,
             height: #height,
             rgba: &[#(#rgba),*],
